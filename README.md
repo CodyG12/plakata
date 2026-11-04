@@ -34,7 +34,7 @@ Deploys to Vercel as-is — no environment variables, database, or other service
 4. Minor typos get a correction: type "Derek Jeeter" and the field changes to "Derek Jeter" with **"Did you
    mean Derek Jeter?"** Press Enter to submit it, or edit it. A suggestion isn't counted as a wrong guess,
    and the clock keeps running. For father/son namesakes, the plain name means the father: "Ken Griffey"
-   prompts "Did you mean Ken Griffey Sr.?", and only "Ken Griffey Jr." reaches the son. A surname alone
+   is submitted as Ken Griffey Sr., and only "Ken Griffey Jr." reaches the son. A surname alone
    that several players share ("Griffey", "Johnson") must be typed as a full name. A full name shared by
    unrelated players ("Randy Johnson") counts if any of them fits the question; if several fit, you pick
    which one you meant.
@@ -173,8 +173,8 @@ players match, the outcome depends on what was typed:
 
 **Father/son default.** A father/son pair is two players sharing a full name, with verified "Jr." and
 "Sr." aliases in `aliases.ts`. For these pairs, a full name typed **without** a suffix, or a typo of one, is
-treated as the father. It comes back as a suggestion, "Did you mean Ken Griffey Sr.?", for the player to
-confirm. Only typing "Jr." reaches the son. The rule is driven purely by the name, never by who fits the
+treated as the father. A correctly spelled name resolves to him directly; a typo comes back as a
+suggestion, "Did you mean Ken Griffey Sr.?", for the player to confirm. Only typing "Jr." reaches the son. The rule is driven purely by the name, never by who fits the
 question, and doesn't apply to surnames alone ("Griffey" stays ambiguous). It covers 15 pairs, including
 Griffey, Tatis, Guerrero, Rose, Gwynn, Alomar, Witt, Raines and Jose Cruz.
 

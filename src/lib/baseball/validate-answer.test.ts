@@ -94,9 +94,12 @@ describe("validateAnswer — real Lahman data", () => {
   });
 
   it("checks eligibility only after the name is settled", () => {
-    // A plain father/son name suggests Sr. before eligibility is checked, identically for any question.
-    expect(validate("Ken Griffey", "hr-300")).toMatchObject({ status: "suggestion", suggestion: "Ken Griffey Sr." });
-    expect(validate("Ken Griffey", "hr-300")).toEqual(validate("Ken Griffey", "mariners"));
+    // A plain father/son name means Sr. regardless of the question; then eligibility applies to him.
+    expect(validate("Ken Griffey", "hr-300").status).toBe("ineligible"); // Sr. hit 152 HR
+    expect(validate("Ken Griffey", "mariners").status).toBe("valid"); // Sr. played for Seattle 1990–91
+    // A typo of the plain name still suggests Sr., identically for any question.
+    expect(validate("Ken Grifey", "hr-300")).toMatchObject({ status: "suggestion", suggestion: "Ken Griffey Sr." });
+    expect(validate("Ken Grifey", "hr-300")).toEqual(validate("Ken Grifey", "mariners"));
     // Once specific, eligibility applies normally.
     expect(validate("Ken Griffey Jr.", "hr-300").status).toBe("valid");
     expect(validate("Ken Griffey Sr.", "hr-300").status).toBe("ineligible");

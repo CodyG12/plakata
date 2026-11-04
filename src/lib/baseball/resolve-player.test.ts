@@ -67,7 +67,7 @@ describe("resolvePlayerName — real Lahman data", () => {
 
   it("only suggests text that resolves to the same players without correction", () => {
     for (const input of [
-      "Shohei Otani", "Derek Jeeter", "Mike Truot", "Ken Grifey Jr", "Ohtnai", "Randy Jonson", "Ken Griffey", "Ken Grifey",
+      "Shohei Otani", "Derek Jeeter", "Mike Truot", "Ken Grifey Jr", "Ohtnai", "Randy Jonson", "Ken Grifey",
     ]) {
       const s = suggestionFor(input)!;
       const again = resolve(s.suggestion);
@@ -95,17 +95,17 @@ describe("resolvePlayerName — real Lahman data", () => {
   });
 
   describe("father/son namesakes", () => {
-    it("suggests Sr. when no suffix is typed", () => {
-      const cases: Array<[string, string, string]> = [
-        ["Ken Griffey", "griffke01", "Ken Griffey Sr."],
-        ["Fernando Tatis", "tatisfe01", "Fernando Tatis Sr."],
-        ["Vladimir Guerrero", "guerrvl01", "Vladimir Guerrero Sr."],
-        ["Vlad Guerrero", "guerrvl01", "Vlad Guerrero Sr."],
-        ["Pete Rose", "rosepe01", "Pete Rose Sr."],
-        ["Bobby Witt", "wittbo01", "Bobby Witt Sr."],
+    it("resolves straight to Sr. when no suffix is typed", () => {
+      const cases: Array<[string, string]> = [
+        ["Ken Griffey", "griffke01"],
+        ["Fernando Tatis", "tatisfe01"],
+        ["Vladimir Guerrero", "guerrvl01"],
+        ["Vlad Guerrero", "guerrvl01"],
+        ["Pete Rose", "rosepe01"],
+        ["Bobby Witt", "wittbo01"],
       ];
-      for (const [input, id, suggestion] of cases) {
-        expect(resolve(input), input).toMatchObject({ kind: "suggestion", suggestion, playerIds: [id] });
+      for (const [input, id] of cases) {
+        expect(resolve(input), input).toMatchObject({ kind: "resolved", player: { id } });
       }
     });
 

@@ -16,7 +16,7 @@ export type NameResolution =
    */
   | { kind: "namesakes"; players: BaseballPlayer[]; matchType: Exclude<MatchType, "fuzzy" | "partial"> }
   /**
-   * Probable typo, or a father/son name typed without "Jr.". Never accepted
+   * Probable typo (including of a father/son name, which suggests "Sr."). Never accepted
    * automatically: `suggestion` is correctly spelled text that, when submitted,
    * resolves (without correction) to exactly `playerIds`.
    */
@@ -144,8 +144,8 @@ function findCandidates(key: string, index: PlayerIndex): Candidates | null {
  * Father/son namesakes: a full name typed WITHOUT a suffix ("Ken Griffey", or
  * a typo of it) means the father. Only an explicit "Jr." reaches the son,
  * through his alias. Applies only when a verified "<name> Sr." alias exists
- * for exactly the name that matched; returns a "Did you mean … Sr.?"
- * suggestion rather than silently picking.
+ * for exactly the name that matched. A correctly spelled plain name resolves
+ * straight to Sr.; a typo of one returns a "Did you mean … Sr.?" suggestion.
  */
 function seniorDefault(candidates: Candidates, index: PlayerIndex): NameResolution | null {
   if (candidates.typedSuffix || candidates.matchType === "partial") return null;
@@ -163,5 +163,9 @@ function seniorDefault(candidates: Candidates, index: PlayerIndex): NameResoluti
   const [seniorId] = senior;
   if (!candidates.ids.includes(seniorId)) return null;
 
+  // Correctly spelled → the father, directly. A typo still gets a suggestion.
+  if (candidates.matchType === "exact" || candidates.matchType === "alias") {
+    return { kind: "resolved", player: index.getById(seniorId)!, matchType: candidates.matchType };
+  }
   return { kind: "suggestion", suggestion: index.displayOf(seniorKey) ?? seniorKey, playerIds: [seniorId] };
 }
