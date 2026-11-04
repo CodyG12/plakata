@@ -1,18 +1,17 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ROUND_SECONDS } from "@/data/questions";
 
 const TICK_MS = 200;
 
 /**
  * Milliseconds remaining until `deadline` (epoch ms), re-rendering a few times
- * per second. Calls `onExpire` on every tick at or past the deadline; the game
+ * per second; null until the first tick (one frame), so render never reads the clock. Calls `onExpire` on every tick at or past the deadline; the game
  * reducer ignores repeats, so a round can never be expired twice. Exactly one
  * interval exists per deadline, and it is cleared when the deadline changes or
  * the component unmounts.
  */
-export function useCountdown(deadline: number | null, onExpire: () => void): number {
+export function useCountdown(deadline: number | null, onExpire: () => void): number | null {
   const [now, setNow] = useState<number | null>(null);
   const onExpireRef = useRef(onExpire);
 
@@ -36,7 +35,6 @@ export function useCountdown(deadline: number | null, onExpire: () => void): num
   }, [deadline]);
 
   if (deadline === null) return 0;
-  // Before the first tick (one frame), assume a full round rather than reading the clock during render.
-  if (now === null) return ROUND_SECONDS * 1000;
+  if (now === null) return null;
   return Math.max(0, deadline - now);
 }

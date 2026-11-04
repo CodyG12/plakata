@@ -1,11 +1,10 @@
 "use client";
 
-import { ArrowRight, CircleCheck, Hourglass, Info } from "lucide-react";
+import { ArrowRight, CircleCheck, Hourglass } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { Button } from "@/components/ui/Button";
 import { QUESTIONS, ROUND_COUNT } from "@/data/questions";
 import type { RoundRecord } from "@/types/game";
-import { RarityMeter } from "./RarityMeter";
 import { TIER_STYLES, TierBadge } from "./TierBadge";
 
 interface RoundResultProps {
@@ -79,25 +78,6 @@ export function RoundResult({ round, roundIndex, totalScore, onNext }: RoundResu
               : validation?.message}
             {!timedOut && wrongGuesses && <span className="text-ink-muted"> Found after {wrongGuesses}.</span>}
           </p>
-          {score.valid && score.estimatedRarity !== null && (
-            <>
-              <div className="mt-5 flex items-baseline justify-between text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted">
-                <span>Estimated rarity</span>
-                <span className="font-mono text-xs tabular-nums">{score.estimatedRarity}/100</span>
-              </div>
-              <RarityMeter score={score.estimatedRarity} className="mt-1.5" />
-              <p className="mt-4 flex items-start gap-2 text-sm text-ink-muted">
-                <Info className="mt-0.5 size-4 shrink-0" aria-hidden />
-                <span>
-                  <strong className="font-semibold text-ink">{score.estimateNote}.</strong>{" "}
-                  {score.method === "curated"
-                    ? "Based on a curated estimate of how often fans name this player for this question."
-                    : "This player isn't on our list of commonly named answers, so they get a provisional deep-cut estimate."}{" "}
-                  Not yet based on real player submissions.
-                </span>
-              </p>
-            </>
-          )}
         </div>
       </div>
 

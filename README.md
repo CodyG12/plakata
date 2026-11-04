@@ -5,7 +5,7 @@ A Krillion-style baseball trivia game. Each round asks for an MLB player who fit
 but **rarer answers score more**: every round is a Strikeout, Bunt, Single, Double, Triple or Plákata.
 Babe Ruth on the 300-HR question is a Bunt; Jay Buhner there is a Triple.
 
-Seven rounds, 30 seconds each, up to 100 points per round (700 max).
+Seven rounds: 3 seconds to read each prompt, then 30 seconds to answer. Up to 100 points per round (700 max).
 
 ## Quick start
 
@@ -27,21 +27,24 @@ Deploys to Vercel as-is — no environment variables, database, or other service
 
 ## How to play
 
-1. Press **Play Game**.
-2. Type a player's name from memory and press **Enter** or **Submit**. There are no suggestions, so the
+1. Press **Swing Away**.
+2. Each round opens with **3 seconds to read the prompt**. Only the prompt and a short countdown show; the
+   answer field and Submit button are hidden and the 30-second clock holds. When reading ends, the field
+   appears with focus and the clock starts.
+3. Type a player's name from memory and press **Enter** or **Submit**. There are no suggestions, so the
    interface never hints at possible answers.
-3. **Guess as many times as you like.** A rejected guess shows a short message, clears the field, and the
+4. **Guess as many times as you like.** A rejected guess shows a short message, clears the field, and the
    clock keeps running. Wrong guesses cost nothing but time.
-4. Minor typos get a correction: type "Derek Jeeter" and the field changes to "Derek Jeter" with **"Did you
+5. Minor typos get a correction: type "Derek Jeeter" and the field changes to "Derek Jeter" with **"Did you
    mean Derek Jeter?"** Press Enter to submit it, or edit it. A suggestion isn't counted as a wrong guess,
    and the clock keeps running. For father/son namesakes, the plain name means the father: "Ken Griffey"
    is submitted as Ken Griffey Sr., and only "Ken Griffey Jr." reaches the son. A surname alone
    that several players share ("Griffey", "Johnson") must be typed as a full name. A full name shared by
    unrelated players ("Randy Johnson") counts if any of them fits the question; if several fit, you pick
    which one you meant.
-5. The first **valid** answer ends the round. It's always a hit, classified by its estimated rarity
+6. The first **valid** answer ends the round. It's always a hit, classified by its estimated rarity
    (see [Scoring](#scoring)).
-6. When time runs out without a valid answer, the round is a **Strikeout** and scores zero.
+7. When time runs out without a valid answer, the round is a **Strikeout** and scores zero.
 
 An in-progress game survives a page refresh (saved in `localStorage`; the timer keeps counting).
 
@@ -133,13 +136,13 @@ Answers are checked on the server, only after the player submits. There is no au
 probable typo comes back as a **suggestion**: the corrected spelling, which the player must confirm by
 submitting it. A rejected answer gets one of three generic messages and **no player names, IDs, or stats**:
 
-| Status | Message |
-| --- | --- |
-| `unrecognized` | "Player not recognized. Check the spelling and try again." |
-| `ambiguous` | "Multiple players match that name. Please enter the player's full name." |
-| `ineligible` | "Incorrect answer — that player doesn't fit this question. Try again!" |
-| `suggestion` | "Did you mean Derek Jeter?" (not a rejection; the input is pre-filled with the correction) |
-| `choose` | "More than one Luis Castillo fits this question. Which one did you mean?" plus a button for each, showing career years and teams (not a rejection) |
+| Status         | Message                                                                                                                                            |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `unrecognized` | "Player not recognized. Check the spelling and try again."                                                                                         |
+| `ambiguous`    | "Multiple players match that name. Please enter the player's full name."                                                                           |
+| `ineligible`   | "Incorrect answer — that player doesn't fit this question. Try again!"                                                                             |
+| `suggestion`   | "Did you mean Derek Jeter?" (not a rejection; the input is pre-filled with the correction)                                                         |
+| `choose`       | "More than one Luis Castillo fits this question. Which one did you mean?" plus a button for each, showing career years and teams (not a rejection) |
 
 Only a `valid` result carries the player's ID, canonical name and `matchType`. A suggestion is produced
 **before** eligibility is checked, so it's identical whether or not the player fits the question. It reveals
@@ -183,11 +186,11 @@ Griffey, Tatis, Guerrero, Rose, Gwynn, Alomar, Witt, Raines and Jose Cruz.
 
 **Fuzzy thresholds,** based on the normalized input length including spaces:
 
-| Input length | Max edits | Examples |
-| --- | --- | --- |
-| 1–4 | 0 (must be exact) | "Ruth", "Cobb", "Ott" |
-| 5–9 | 1 | "Jeeter" → Jeter, "Mel Ot" → Mel Ott |
-| 10+ | 2 | "Derek Jeeter", "Shohei Otani", "Albert Pujolz" |
+| Input length | Max edits         | Examples                                        |
+| ------------ | ----------------- | ----------------------------------------------- |
+| 1–4          | 0 (must be exact) | "Ruth", "Cobb", "Ott"                           |
+| 5–9          | 1                 | "Jeeter" → Jeter, "Mel Ot" → Mel Ott            |
+| 10+          | 2                 | "Derek Jeeter", "Shohei Otani", "Albert Pujolz" |
 
 A typo produces a suggestion only if exactly one player sits at the minimum distance; if two players tie, the
 answer is ambiguous. A typo is never accepted automatically. The suggested text keeps the spelling that was
@@ -214,14 +217,14 @@ neighbour (Jim Rice).
 
 Every round ends in exactly one tier with fixed points. All of it lives in `src/lib/baseball/scoring.ts`.
 
-| Tier      | Estimated rarity    | Points |
-|-----------|---------------------|-------:|
-| Strikeout | no valid answer     |      0 |
-| Bunt      | 0–19                |     10 |
-| Single    | 20–39               |     25 |
-| Double    | 40–59               |     50 |
-| Triple    | 60–79               |     75 |
-| Plákata   | 80–100              |    100 |
+| Tier      | Estimated rarity | Points |
+| --------- | ---------------- | -----: |
+| Strikeout | no valid answer  |      0 |
+| Bunt      | 0–19             |     10 |
+| Single    | 20–39            |     25 |
+| Double    | 40–59            |     50 |
+| Triple    | 60–79            |     75 |
+| Plákata   | 80–100           |    100 |
 
 - The thresholds are **provisional**; edit `SCORING_TIERS` to change them.
 - `classifyRarity()` rounds and clamps the estimate to 0–100, then picks the highest tier whose minimum
@@ -229,7 +232,7 @@ Every round ends in exactly one tier with fixed points. All of it lives in `src/
 - A Strikeout happens only when time runs out without a valid answer, however many wrong guesses came
   first.
 - The game total is the sum of the round points: 700 at most (7 × Plákata).
-- The estimated rarity is stored apart from the points and still shown, smaller, on the round result.
+- The estimated rarity is stored apart from the points. The round result shows only the tier and points.
 
 ### Rarity estimates (provisional)
 
@@ -238,13 +241,17 @@ Rarity estimates are **not** measured community answer frequencies, search volum
 - `rarity-estimates.ts` puts well-known players into hand-curated, **question-specific** tiers:
   iconic **5** (Bunt), famous **20** (Single), well-known **40** (Double), known **60** (Triple). The same
   player can score differently on different questions. Jay Buhner is 20 on the Mariners question
-  (Single), 60 on the 300-HR question (Triple), and an uncurated 80 as a Yankee (Plákata).
-- Any valid player who isn't curated for that question gets the documented **fallback of 80** ("deep cut,
+  (Single), 60 on the 300-HR question (Triple), and an uncurated 75 as a Yankee (Triple).
+- Any valid player who isn't curated for that question gets the documented **fallback of 75** ("deep cut,
   provisional"). Uncurated players are presumed less commonly named than curated ones, but there's no
   evidence for how much.
-- The fallback sits exactly at the Plákata threshold, so **every uncurated valid answer is a Plákata**,
-  and curated answers top out at Triple. Lowering `FALLBACK_RARITY` below 80 would make Plákata
-  unreachable with the current estimates.
+- **Exactly one Plákata per question.** `PLAKATA_PICKS` names one hand-picked, deliberately obscure
+  player per question (rarity 100). Every other uncurated answer is a Triple; the fallback must stay
+  below 80. Starting picks are the eligible, uncurated player with the fewest career games: Richie
+  Sexson (300 HR), Spud Chandler (MVP), Deacon White (2,000 hits), LaMarr Hoyt (Cy Young) and Frank
+  Grant (Hall of Fame). For the Yankees and Mariners that rule lands on one-game players, so those are
+  hand-picked instead: Hensley Meulens and Mickey Brantley. Tests check every pick exists, qualifies
+  and isn't also curated for that question.
 - The test suite verifies that every curated player ID exists and actually satisfies its question. Writing
   that check caught several of the author's wrong assumptions, such as Mel Ott never winning an MVP and
   Christian Yelich being short of 300 HR.

@@ -1,4 +1,4 @@
-import { QUESTIONS, ROUND_COUNT, ROUND_SECONDS } from "@/data/questions";
+import { QUESTIONS, READ_SECONDS, ROUND_COUNT, ROUND_SECONDS } from "@/data/questions";
 import { noAnswerScore } from "@/lib/baseball/calculate-rarity";
 import { isScoringTier } from "@/lib/baseball/scoring";
 import type { ScoreResult } from "@/types/baseball";
@@ -8,6 +8,7 @@ export const initialGameState: GameState = {
   status: "landing",
   roundIndex: 0,
   deadline: null,
+  answerOpensAt: null,
   rounds: [],
   pending: false,
   feedback: null,
@@ -63,6 +64,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     case "SUBMIT_STARTED":
       if (!isActiveRound(state, action.roundIndex) || state.pending) return state;
       if (state.deadline !== null && action.now >= state.deadline) return state; // too late
+      if (state.answerOpensAt !== null && action.now < state.answerOpensAt) return state; // still reading
       return { ...state, pending: true, feedback: null, error: null };
 
     case "SUBMIT_FAILED":
@@ -84,6 +86,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
           ...state,
           status: "round-result",
           deadline: null,
+          answerOpensAt: null,
           pending: false,
           feedback: null,
           error: null,
@@ -149,12 +152,15 @@ function isActiveRound(state: GameState, roundIndex: number): boolean {
   return state.status === "playing" && state.roundIndex === roundIndex;
 }
 
+/** A round opens with READ_SECONDS to read the prompt, then ROUND_SECONDS to answer. */
 function startRound(state: GameState, roundIndex: number, now: number): GameState {
+  const answerOpensAt = now + READ_SECONDS * 1000;
   return {
     ...state,
     status: "playing",
     roundIndex,
-    deadline: now + ROUND_SECONDS * 1000,
+    answerOpensAt,
+    deadline: answerOpensAt + ROUND_SECONDS * 1000,
     pending: false,
     feedback: null,
     attempts: 0,
@@ -168,6 +174,7 @@ function expireRound(state: GameState): GameState {
     ...state,
     status: "round-result",
     deadline: null,
+    answerOpensAt: null,
     pending: false,
     feedback: null,
     error: null,
@@ -198,6 +205,7 @@ function hydrate(saved: GameState, now: number): GameState {
     error: null,
     attempts: Number.isInteger(saved.attempts) ? saved.attempts : 0,
     inputVersion: Number.isInteger(saved.inputVersion) ? saved.inputVersion : 0,
+    answerOpensAt: typeof saved.answerOpensAt === "number" ? saved.answerOpensAt : null,
   };
   if (restored.status === "playing" && restored.deadline !== null && now >= restored.deadline) {
     return expireRound(restored);

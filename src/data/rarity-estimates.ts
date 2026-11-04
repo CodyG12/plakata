@@ -27,9 +27,33 @@ export const TIER_RARITY: Record<PopularityTier, number> = {
 /**
  * Score for valid answers with no curated estimate. Uncurated players are
  * presumed less commonly named than anyone on the curated lists, so this sits
- * above the "known" tier, at the Plákata threshold (80) — but it is a neutral default, not evidence of rarity.
+ * above the "known" tier (a Triple) — but it is a neutral default, not
+ * evidence of rarity. It must stay below the Plákata threshold (80): only the
+ * single pick below is a Plákata.
  */
-export const FALLBACK_RARITY = 80;
+export const FALLBACK_RARITY = 75;
+
+/** Rarity for each question's one Plákata answer. */
+export const PLAKATA_RARITY = 100;
+
+/**
+ * The ONE Plákata answer per question: a hand-picked, deliberately obscure
+ * player who still fits the question. Everyone else uncurated is a Triple.
+ * Edit freely. Tests verify each pick exists, qualifies, and is not also on
+ * that question's curated list.
+ *
+ * Starting picks: the eligible, uncurated player with the fewest career games,
+ * except Yankees and Mariners, where that rule lands on one-game players.
+ */
+export const PLAKATA_PICKS: Record<QuestionId, string> = {
+  "hr-300": "sexsori01", // Richie Sexson
+  mvp: "chandsp01", // Spud Chandler
+  yankees: "meulehe01", // Hensley Meulens
+  "hits-2000": "whitede01", // Deacon White
+  "cy-young": "hoytla01", // LaMarr Hoyt
+  mariners: "brantmi01", // Mickey Brantley
+  "hall-of-fame": "grantfr99", // Frank Grant
+};
 
 export const RARITY_ESTIMATES: Record<QuestionId, Record<string, PopularityTier>> = {
   "hr-300": {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { QUESTIONS } from "@/data/questions";
-import { FALLBACK_RARITY, RARITY_ESTIMATES, TIER_RARITY } from "@/data/rarity-estimates";
+import { FALLBACK_RARITY, PLAKATA_PICKS, RARITY_ESTIMATES, TIER_RARITY } from "@/data/rarity-estimates";
 import type { ValidationResult } from "@/types/baseball";
 import { calculateScore, type RarityEstimator } from "./calculate-rarity";
 import { checkCriteria } from "./criteria";
@@ -35,17 +35,19 @@ describe("calculateScore", () => {
 
   it("uses the documented fallback for uncurated valid players", () => {
     const result = calculateScore(valid(uncuratedMariner), "mariners");
-    expect(result).toMatchObject({ estimatedRarity: FALLBACK_RARITY, tier: "plakata", points: 100, method: "fallback" });
+    expect(result).toMatchObject({ estimatedRarity: FALLBACK_RARITY, tier: "triple", points: 75, method: "fallback" });
   });
 
-  it("gives obscure answers more points than famous ones", () => {
+  it("rates obscure answers rarer, and never awards them fewer points", () => {
     const famous = calculateScore(valid("griffke02"), "mariners");
     const recognizable = calculateScore(valid("putzjj01"), "mariners");
     const obscure = calculateScore(valid(uncuratedMariner), "mariners");
     expect(recognizable.estimatedRarity!).toBeGreaterThan(famous.estimatedRarity!);
     expect(obscure.estimatedRarity!).toBeGreaterThan(recognizable.estimatedRarity!);
     expect(recognizable.points).toBeGreaterThan(famous.points);
-    expect(obscure.points).toBeGreaterThan(recognizable.points);
+    // Known (60) and the uncurated fallback (75) are both Triples; only the one pick is a Plákata.
+    expect(obscure.points).toBeGreaterThanOrEqual(recognizable.points);
+    expect(calculateScore(valid(PLAKATA_PICKS.mariners), "mariners").points).toBeGreaterThan(obscure.points);
   });
 
   it("awards zero for invalid or unresolved answers", () => {
@@ -86,7 +88,7 @@ describe("calculateScore", () => {
     expect(byRarity(TIER_RARITY.famous)).toBe("single");
     expect(byRarity(TIER_RARITY.wellKnown)).toBe("double");
     expect(byRarity(TIER_RARITY.known)).toBe("triple");
-    expect(byRarity(FALLBACK_RARITY)).toBe("plakata");
+    expect(byRarity(FALLBACK_RARITY)).toBe("triple");
   });
 
   it("keeps every score within 0–100", () => {
@@ -94,6 +96,35 @@ describe("calculateScore", () => {
       expect(value).toBeGreaterThanOrEqual(0);
       expect(value).toBeLessThanOrEqual(100);
     }
+  });
+});
+
+describe("Plákata picks", () => {
+  const index = getPlayerIndex();
+
+  it("names exactly one real, qualifying, uncurated player per question", () => {
+    for (const q of QUESTIONS) {
+      const id = PLAKATA_PICKS[q.id];
+      const player = index.getById(id);
+      expect(player, `${q.id}: ${id} missing`).toBeDefined();
+      expect(checkCriteria(player!, q.criteria).met, `${q.id}: ${player!.name} does not qualify`).toBe(true);
+      expect(RARITY_ESTIMATES[q.id][id], `${q.id}: ${player!.name} is also curated`).toBeUndefined();
+    }
+  });
+
+  it("awards Plákata to the pick only; every other uncurated answer is a Triple", () => {
+    for (const q of QUESTIONS) {
+      expect(calculateScore(valid(PLAKATA_PICKS[q.id]), q.id)).toMatchObject({ tier: "plakata", points: 100 });
+    }
+    expect(calculateScore(valid("gamelbe01"), "mariners")).toMatchObject({ tier: "triple", points: 75 });
+    // A pick is per question: Richie Sexson is the 300-HR Plákata but a curated Mariner.
+    expect(calculateScore(valid("sexsori01"), "hr-300").tier).toBe("plakata");
+    expect(calculateScore(valid("sexsori01"), "mariners").tier).not.toBe("plakata");
+  });
+
+  it("keeps the fallback in the Triple band so no one else reaches Plákata", () => {
+    expect(FALLBACK_RARITY).toBeGreaterThanOrEqual(60);
+    expect(FALLBACK_RARITY).toBeLessThan(80);
   });
 });
 

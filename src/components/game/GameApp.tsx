@@ -56,6 +56,7 @@ export function GameApp() {
         return;
       const now = Date.now();
       if (state.deadline !== null && now >= state.deadline) return;
+      if (state.answerOpensAt !== null && now < state.answerOpensAt) return;
       const roundIndex = state.roundIndex;
       inFlight.current = true;
       lastInput.current = input;
@@ -89,7 +90,7 @@ export function GameApp() {
         inFlight.current = false;
       }
     },
-    [state.status, state.pending, state.roundIndex, state.deadline],
+    [state.status, state.pending, state.roundIndex, state.deadline, state.answerOpensAt],
   );
 
   const roundIndex = state.roundIndex;

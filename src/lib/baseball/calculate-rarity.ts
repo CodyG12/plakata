@@ -1,10 +1,17 @@
-import { FALLBACK_RARITY, RARITY_ESTIMATES, TIER_RARITY, type PopularityTier } from "@/data/rarity-estimates";
+import {
+  FALLBACK_RARITY,
+  PLAKATA_PICKS,
+  PLAKATA_RARITY,
+  RARITY_ESTIMATES,
+  TIER_RARITY,
+  type PopularityTier,
+} from "@/data/rarity-estimates";
 import type { ScoreMethod, ScoreResult, ValidationResult } from "@/types/baseball";
 import { classifyRarity, strikeout } from "./scoring";
 
 /**
- * A source of rarity estimates. The MVP chains two: curated tiers, then a
- * neutral fallback. Future sources (community answer frequencies with Bayesian
+ * A source of rarity estimates. The MVP chains three: the per-question Plákata
+ * pick, curated tiers, then a neutral fallback. Future sources (community answer frequencies with Bayesian
  * smoothing, pageviews, etc.) can implement this interface and be inserted
  * ahead of the curated estimator without touching the UI or validation code.
  */
@@ -25,6 +32,13 @@ const TIER_LABELS: Record<PopularityTier, string> = {
   known: "Recognizable answer",
 };
 
+export const plakataEstimator: RarityEstimator = {
+  estimate(questionId, playerId) {
+    if (PLAKATA_PICKS[questionId as keyof typeof PLAKATA_PICKS] !== playerId) return null;
+    return { rarityScore: PLAKATA_RARITY, method: "curated", label: "The deepest cut" };
+  },
+};
+
 export const curatedEstimator: RarityEstimator = {
   estimate(questionId, playerId) {
     const tiers = RARITY_ESTIMATES[questionId as keyof typeof RARITY_ESTIMATES];
@@ -42,7 +56,7 @@ export const fallbackEstimator: RarityEstimator = {
   }),
 };
 
-export const DEFAULT_ESTIMATORS: readonly RarityEstimator[] = [curatedEstimator, fallbackEstimator];
+export const DEFAULT_ESTIMATORS: readonly RarityEstimator[] = [plakataEstimator, curatedEstimator, fallbackEstimator];
 
 /** Score for anything that isn't a valid answer: a Strikeout, 0 points. */
 export function noAnswerScore(): ScoreResult {

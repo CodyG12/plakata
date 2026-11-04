@@ -1,6 +1,6 @@
 import { Gem, Play, Timer, Trophy } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { MAX_GAME_SCORE, ROUND_COUNT, ROUND_SECONDS } from "@/data/questions";
+import { MAX_GAME_SCORE, READ_SECONDS, ROUND_COUNT, ROUND_SECONDS } from "@/data/questions";
 import { SCORING_TIERS } from "@/lib/baseball/scoring";
 
 /** "Bunt 10 · Single 25 · … · Plákata 100", straight from the scoring table. */
@@ -16,7 +16,7 @@ const RULES = [
   {
     icon: Timer,
     title: `${ROUND_COUNT} prompts, ${ROUND_SECONDS} seconds each`,
-    body: "Each round asks for a player who fits — 300 homers, an MVP, a Mariner…",
+    body: `Each round asks for a player who fits — 300 homers, an MVP, a Mariner… You get ${READ_SECONDS} seconds to read the prompt before the clock starts.`,
   },
   {
     icon: Gem,
@@ -55,7 +55,7 @@ export function LandingScreen({ onStart }: LandingScreenProps) {
       </ul>
 
       <Button size="lg" onClick={onStart} icon={<Play className="size-5 fill-current" aria-hidden />} className="w-full sm:w-auto sm:px-12">
-        Play Game
+        Swing Away
       </Button>
     </section>
   );

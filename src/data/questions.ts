@@ -49,6 +49,8 @@ export type QuestionId = Question["id"];
 
 export const ROUND_COUNT = QUESTIONS.length;
 export const ROUND_SECONDS = 30;
+/** Seconds to read each prompt before answers open (not part of the 30-second clock). */
+export const READ_SECONDS = 3;
 /** Best possible game: a Plákata every round (7 × 100 = 700). */
 export const MAX_GAME_SCORE = QUESTIONS.length * MAX_POINTS_PER_ROUND;
 

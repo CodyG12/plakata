@@ -27,6 +27,11 @@ export interface GameState {
   roundIndex: number;
   /** Epoch ms when the current round's timer ends. Null outside "playing". */
   deadline: number | null;
+  /**
+   * Epoch ms when answering opens, after the read period. The 30-second clock
+   * runs from here to `deadline`. Null outside "playing" (and in older saves).
+   */
+  answerOpensAt: number | null;
   /** Completed rounds, in order. rounds.length === roundIndex while playing. */
   rounds: RoundRecord[];
   /** True while an answer request is in flight (prevents double submits). */

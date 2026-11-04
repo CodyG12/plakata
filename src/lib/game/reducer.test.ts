@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { QUESTIONS, ROUND_COUNT, ROUND_SECONDS } from "@/data/questions";
+import { QUESTIONS, READ_SECONDS, ROUND_COUNT, ROUND_SECONDS } from "@/data/questions";
 import { MAX_GAME_SCORE } from "@/data/questions";
 import { classifyRarity } from "@/lib/baseball/scoring";
 import type { ScoreResult, ValidationResult } from "@/types/baseball";
@@ -7,7 +7,9 @@ import type { AnswerResponse, GameState } from "@/types/game";
 import { SUBMIT_GRACE_MS, gameReducer, initialGameState, totalScore, type GameAction } from "./reducer";
 
 const T0 = 1_000_000;
-const DEADLINE = T0 + ROUND_SECONDS * 1000;
+/** Answers open after the read period; the 30-second clock runs from here. */
+const OPEN = T0 + READ_SECONDS * 1000;
+const DEADLINE = OPEN + ROUND_SECONDS * 1000;
 
 /** A valid answer with this estimated rarity (scored through the real tier table). */
 const correct = (rarity: number): AnswerResponse => {
@@ -34,7 +36,7 @@ const run = (state: GameState, ...actions: GameAction[]) => actions.reduce(gameR
 const start = () => gameReducer(initialGameState, { type: "START", now: T0 });
 
 /** Submit a guess for the current round and resolve it with `response`. */
-const guess = (state: GameState, response: AnswerResponse, now = T0 + 1000): GameState =>
+const guess = (state: GameState, response: AnswerResponse, now = OPEN + 1000): GameState =>
   run(
     state,
     { type: "SUBMIT_STARTED", roundIndex: state.roundIndex, now },
@@ -42,8 +44,44 @@ const guess = (state: GameState, response: AnswerResponse, now = T0 + 1000): Gam
   );
 
 describe("gameReducer", () => {
-  it("starts a game at round 1 with a 30-second deadline", () => {
-    expect(start()).toMatchObject({ status: "playing", roundIndex: 0, deadline: DEADLINE, rounds: [], attempts: 0 });
+  it("starts a game at round 1 with a 3-second read, then a 30-second clock", () => {
+    expect(start()).toMatchObject({
+      status: "playing",
+      roundIndex: 0,
+      answerOpensAt: T0 + 3000,
+      deadline: T0 + 33_000,
+      rounds: [],
+      attempts: 0,
+    });
+    expect(DEADLINE - OPEN).toBe(30_000);
+  });
+
+  describe("read period", () => {
+    it("rejects any submission before answers open", () => {
+      const s = start();
+      expect(gameReducer(s, { type: "SUBMIT_STARTED", roundIndex: 0, now: T0 })).toBe(s);
+      expect(gameReducer(s, { type: "SUBMIT_STARTED", roundIndex: 0, now: OPEN - 1 })).toBe(s);
+      expect(gameReducer(s, { type: "SUBMIT_STARTED", roundIndex: 0, now: OPEN }).pending).toBe(true);
+    });
+
+    it("cannot score during the read period", () => {
+      const s = guess(start(), correct(60), T0 + 1000);
+      expect(s).toMatchObject({ status: "playing", rounds: [], attempts: 0, pending: false });
+    });
+
+    it("gives every round its own read period", () => {
+      let s = guess(start(), correct(60));
+      s = gameReducer(s, { type: "NEXT_ROUND", now: T0 + 50_000 });
+      expect(s).toMatchObject({ roundIndex: 1, answerOpensAt: T0 + 53_000, deadline: T0 + 83_000 });
+    });
+
+    it("restores a save from before the read period as already open", () => {
+      const { answerOpensAt: _omit, ...old } = start();
+      void _omit;
+      const restored = gameReducer(initialGameState, { type: "HYDRATE", state: old as GameState, now: T0 + 1000 });
+      expect(restored.answerOpensAt).toBeNull();
+      expect(gameReducer(restored, { type: "SUBMIT_STARTED", roundIndex: 0, now: T0 + 1000 }).pending).toBe(true);
+    });
   });
 
   /** Plays a full game: a number is a valid answer with that rarity, null is a timeout. */
@@ -97,7 +135,7 @@ describe("gameReducer", () => {
     it("allows many incorrect guesses, never touching the timer or score", () => {
       let s = start();
       for (let i = 1; i <= 5; i++) {
-        s = guess(s, i % 2 ? wrongPlayer : unknownName, T0 + i * 1000);
+        s = guess(s, i % 2 ? wrongPlayer : unknownName, OPEN + i * 1000);
         expect(s).toMatchObject({ status: "playing", attempts: i, deadline: DEADLINE });
       }
       expect(totalScore(s)).toBe(0);
@@ -163,14 +201,14 @@ describe("gameReducer", () => {
 
     it("clears the previous error message when a new guess is submitted", () => {
       const s = guess(start(), wrongPlayer);
-      const next = gameReducer(s, { type: "SUBMIT_STARTED", roundIndex: 0, now: T0 + 2000 });
+      const next = gameReducer(s, { type: "SUBMIT_STARTED", roundIndex: 0, now: OPEN + 2000 });
       expect(next.feedback).toBeNull();
     });
 
     it("does not count a network failure as an attempt", () => {
       const s = run(
         start(),
-        { type: "SUBMIT_STARTED", roundIndex: 0, now: T0 },
+        { type: "SUBMIT_STARTED", roundIndex: 0, now: OPEN },
         { type: "SUBMIT_FAILED", roundIndex: 0, message: "offline" },
       );
       expect(s).toMatchObject({ status: "playing", pending: false, attempts: 0, error: "offline" });
@@ -179,14 +217,14 @@ describe("gameReducer", () => {
 
   describe("duplicate submissions", () => {
     it("ignores a second submit while one is pending", () => {
-      const s = run(start(), { type: "SUBMIT_STARTED", roundIndex: 0, now: T0 });
-      expect(gameReducer(s, { type: "SUBMIT_STARTED", roundIndex: 0, now: T0 })).toBe(s);
+      const s = run(start(), { type: "SUBMIT_STARTED", roundIndex: 0, now: OPEN });
+      expect(gameReducer(s, { type: "SUBMIT_STARTED", roundIndex: 0, now: OPEN })).toBe(s);
     });
 
     it("ignores a duplicate response for an already-resolved request", () => {
       const s = guess(start(), wrongPlayer);
       const dup = gameReducer(s, {
-        type: "SUBMIT_RESOLVED", roundIndex: 0, submittedText: "p", response: wrongPlayer, now: T0 + 1000,
+        type: "SUBMIT_RESOLVED", roundIndex: 0, submittedText: "p", response: wrongPlayer, now: OPEN + 1000,
       });
       expect(dup).toBe(s);
       expect(dup.attempts).toBe(1);
@@ -269,7 +307,7 @@ describe("gameReducer", () => {
     let s = guess(guess(start(), wrongPlayer), correct(40));
     s = gameReducer(s, { type: "NEXT_ROUND", now: T0 + 5000 });
     expect(s).toMatchObject({
-      roundIndex: 1, attempts: 0, inputVersion: 0, feedback: null, error: null, deadline: T0 + 5000 + ROUND_SECONDS * 1000,
+      roundIndex: 1, attempts: 0, inputVersion: 0, feedback: null, error: null, deadline: T0 + 5000 + (READ_SECONDS + ROUND_SECONDS) * 1000,
     });
   });
 
@@ -302,7 +340,7 @@ describe("gameReducer", () => {
     });
 
     it("clears a stale pending flag", () => {
-      const s = run(start(), { type: "SUBMIT_STARTED", roundIndex: 0, now: T0 });
+      const s = run(start(), { type: "SUBMIT_STARTED", roundIndex: 0, now: OPEN });
       expect(gameReducer(initialGameState, { type: "HYDRATE", state: s, now: T0 }).pending).toBe(false);
     });
 

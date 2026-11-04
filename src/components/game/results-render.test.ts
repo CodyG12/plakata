@@ -8,8 +8,10 @@ import { noAnswerScore } from "@/lib/baseball/calculate-rarity";
 import { classifyRarity } from "@/lib/baseball/scoring";
 import type { ScoreResult } from "@/types/baseball";
 import type { RoundRecord } from "@/types/game";
+import { gameReducer, initialGameState } from "@/lib/game/reducer";
 import { FinalResults } from "./FinalResults";
 import { GameApp } from "./GameApp";
+import { GameScreen } from "./GameScreen";
 import { LandingScreen } from "./LandingScreen";
 import { ProgressIndicator } from "./ProgressIndicator";
 import { RoundResult } from "./RoundResult";
@@ -45,14 +47,14 @@ describe("results screens", () => {
     expect(html).toContain("Jay Buhner");
     expect(html).toContain(">Triple<");
     expect(html).toContain("+75");
-    expect(html).toContain("Estimated rarity");
+    expect(html).not.toContain("Estimated rarity");
+    expect(html).not.toContain('role="meter"');
   });
 
   it("round result shows a Strikeout for a timed-out round", () => {
     const html = renderToStaticMarkup(createElement(RoundResult, { round: miss(0), roundIndex: 0, totalScore: 0, onNext: noop }));
     expect(html).toContain(">Strikeout<");
     expect(html).toContain("+0");
-    expect(html).not.toContain("Estimated rarity");
   });
 
   it("round result celebrates a Plákata", () => {
@@ -116,5 +118,26 @@ describe("game shell", () => {
       expect(css).toContain(`--animate-${anim}:`);
       expect(css).toContain(`@keyframes ${anim} `);
     }
+  });
+});
+
+describe("read period", () => {
+  it("opens each round with only the prompt: no answer field or submit button", () => {
+    const state = gameReducer(initialGameState, { type: "START", now: 1_000_000 });
+    const html = renderToStaticMarkup(
+      createElement(GameScreen, { state, totalScore: 0, onExpire: noop, onSubmit: noop, onChoose: noop }),
+    );
+    expect(html).toContain(QUESTIONS[0].prompt);
+    expect(html).toMatch(/role="status"[^>]*>.*<\/p>/); // the read-period countdown
+    expect(html).not.toContain("<input");
+    expect(html).not.toContain("<form");
+    expect(html).not.toContain("Submit");
+    expect(html).toContain(">30<"); // the 30-second clock hasn't started
+  });
+
+  it("landing rules mention the read period", () => {
+    expect(renderToStaticMarkup(createElement(LandingScreen, { onStart: noop }))).toContain(
+      "3 seconds to read the prompt before the clock starts",
+    );
   });
 });

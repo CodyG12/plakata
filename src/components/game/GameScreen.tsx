@@ -1,7 +1,16 @@
 "use client";
 
-import { CircleHelp, CircleX, CornerDownLeft, SearchX, SpellCheck, TriangleAlert, Users } from "lucide-react";
-import { QUESTIONS } from "@/data/questions";
+import {
+  BookOpen,
+  CircleHelp,
+  CircleX,
+  CornerDownLeft,
+  SearchX,
+  SpellCheck,
+  TriangleAlert,
+  Users,
+} from "lucide-react";
+import { QUESTIONS, ROUND_SECONDS } from "@/data/questions";
 import { useCountdown } from "@/lib/game/use-countdown";
 import type { ValidationStatus } from "@/types/baseball";
 import type { GameState } from "@/types/game";
@@ -24,25 +33,51 @@ const FEEDBACK_ICONS: Partial<Record<ValidationStatus, typeof CircleX>> = {
   unrecognized: SearchX,
 };
 
-export function GameScreen({ state, totalScore, onExpire, onSubmit, onChoose }: GameScreenProps) {
-  const remainingMs = useCountdown(state.deadline, onExpire);
+export function GameScreen({
+  state,
+  totalScore,
+  onExpire,
+  onSubmit,
+  onChoose,
+}: GameScreenProps) {
+  const remaining = useCountdown(state.deadline, onExpire);
   const question = QUESTIONS[state.roundIndex];
-  const timeUp = remainingMs <= 0;
+  // The answer clock runs from answerOpensAt to the deadline; before that, the player reads.
+  const answerWindowMs =
+    state.deadline !== null && state.answerOpensAt !== null
+      ? state.deadline - state.answerOpensAt
+      : ROUND_SECONDS * 1000;
+  const reading = remaining === null || remaining > answerWindowMs;
+  const readSecondsLeft =
+    remaining === null ? null : Math.ceil((remaining - answerWindowMs) / 1000);
+  const clockMs =
+    remaining === null ? answerWindowMs : Math.min(remaining, answerWindowMs);
+  const timeUp = remaining !== null && remaining <= 0;
   const feedback = state.feedback;
-  const FeedbackIcon = feedback ? (FEEDBACK_ICONS[feedback.status] ?? CircleX) : CircleX;
-  const suggestion = feedback?.status === "suggestion" ? feedback.suggestion : undefined;
+  const FeedbackIcon = feedback
+    ? (FEEDBACK_ICONS[feedback.status] ?? CircleX)
+    : CircleX;
+  const suggestion =
+    feedback?.status === "suggestion" ? feedback.suggestion : undefined;
   const options = feedback?.status === "choose" ? feedback.options : undefined;
 
   return (
     <section className="flex flex-col gap-8" aria-labelledby="question">
       <header className="flex items-center justify-between gap-4">
-        <ProgressIndicator roundIndex={state.roundIndex} rounds={state.rounds} />
+        <ProgressIndicator
+          roundIndex={state.roundIndex}
+          rounds={state.rounds}
+        />
         <div className="flex items-center gap-5">
           <div className="text-right">
-            <span className="block text-xs font-medium uppercase tracking-[0.16em] text-navy-300">Score</span>
-            <span className="font-mono text-xl font-semibold tabular-nums text-cream-50">{totalScore}</span>
+            <span className="block text-xs font-medium uppercase tracking-[0.16em] text-navy-300">
+              Score
+            </span>
+            <span className="font-mono text-xl font-semibold tabular-nums text-cream-50">
+              {totalScore}
+            </span>
           </div>
-          <CountdownTimer remainingMs={remainingMs} />
+          <CountdownTimer remainingMs={clockMs} waiting={reading} />
         </div>
       </header>
 
@@ -58,31 +93,59 @@ export function GameScreen({ state, totalScore, onExpire, onSubmit, onChoose }: 
           {question.prompt}
         </h1>
         <p className="mt-3 text-[15px] text-navy-300">
-          Rarer players score more. Guess as often as you like before time runs out.
+          Rarer players score more. Guess as often as you like before time runs
+          out.
         </p>
       </div>
 
-      {/* Remounting on each rejected attempt clears and refocuses the field. */}
-      <AnswerInput
-        key={state.inputVersion}
-        disabled={timeUp}
-        pending={state.pending}
-        onSubmit={onSubmit}
-        initialValue={suggestion ?? ""}
-      />
+      {/* Hidden while reading; it mounts (and focuses) when answers open. Remounting on each
+          rejected attempt clears and refocuses the field. */}
+      {!reading && (
+        <AnswerInput
+          key={state.inputVersion}
+          disabled={timeUp}
+          pending={state.pending}
+          onSubmit={onSubmit}
+          initialValue={suggestion ?? ""}
+        />
+      )}
 
       <div aria-live="polite" className="min-h-6">
+        {reading && (
+          <p
+            className="flex items-center gap-3 text-[15px] text-cream-200"
+            role="status"
+          >
+            <BookOpen className="size-4 shrink-0 text-cream-300" aria-hidden />
+            Take a swing in
+            <span
+              key={readSecondsLeft ?? "start"}
+              className="inline-flex size-8 items-center justify-center rounded-full bg-cream-100 font-mono text-base font-bold text-ink animate-pop"
+            >
+              {readSecondsLeft ?? "…"}
+            </span>
+          </p>
+        )}
+
         {/* Generic, name-free feedback: never lists or hints at players. */}
         {suggestion && !timeUp && (
           <div
             key={`suggestion-${state.inputVersion}`}
             className="flex items-start gap-2 rounded-xl bg-navy-900/80 px-4 py-3 text-[15px] ring-1 ring-navy-600 animate-rise"
           >
-            <SpellCheck className="mt-0.5 size-4 shrink-0 text-cream-300" aria-hidden />
+            <SpellCheck
+              className="mt-0.5 size-4 shrink-0 text-cream-300"
+              aria-hidden
+            />
             <p className="text-cream-100">
-              Did you mean <strong className="font-semibold text-cream-50">{suggestion}</strong>?{" "}
+              Did you mean{" "}
+              <strong className="font-semibold text-cream-50">
+                {suggestion}
+              </strong>
+              ?{" "}
               <span className="inline-flex items-center gap-1 text-sm text-navy-300">
-                Press <CornerDownLeft className="size-3.5" aria-label="Enter" /> to submit it, or edit your answer.
+                Press <CornerDownLeft className="size-3.5" aria-label="Enter" />{" "}
+                to submit it, or edit your answer.
               </span>
             </p>
           </div>
@@ -91,7 +154,10 @@ export function GameScreen({ state, totalScore, onExpire, onSubmit, onChoose }: 
         {options && !timeUp && (
           <div className="rounded-2xl bg-navy-900/80 p-4 ring-1 ring-navy-600 animate-rise sm:p-5">
             <p className="flex items-start gap-2 text-[15px] text-cream-100">
-              <Users className="mt-0.5 size-4 shrink-0 text-cream-300" aria-hidden />
+              <Users
+                className="mt-0.5 size-4 shrink-0 text-cream-300"
+                aria-hidden
+              />
               {feedback?.message}
             </p>
             <div className="mt-4 grid gap-2 sm:grid-cols-2">
@@ -103,8 +169,12 @@ export function GameScreen({ state, totalScore, onExpire, onSubmit, onChoose }: 
                   onClick={() => onChoose(option.playerId)}
                   className="rounded-xl bg-navy-800 px-4 py-3 text-left ring-1 ring-navy-700 transition hover:bg-navy-700 hover:ring-cream-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cream-100 disabled:opacity-50"
                 >
-                  <span className="block font-semibold text-cream-50">{option.name}</span>
-                  <span className="block text-xs text-navy-300">{option.detail}</span>
+                  <span className="block font-semibold text-cream-50">
+                    {option.name}
+                  </span>
+                  <span className="block text-xs text-navy-300">
+                    {option.detail}
+                  </span>
                 </button>
               ))}
             </div>
@@ -117,11 +187,16 @@ export function GameScreen({ state, totalScore, onExpire, onSubmit, onChoose }: 
             key={state.attempts}
             className="flex items-start gap-2 rounded-xl bg-stitch-600/15 px-4 py-3 text-[15px] ring-1 ring-stitch-500/40 animate-rise"
           >
-            <FeedbackIcon className="mt-0.5 size-4 shrink-0 text-stitch-400" aria-hidden />
+            <FeedbackIcon
+              className="mt-0.5 size-4 shrink-0 text-stitch-400"
+              aria-hidden
+            />
             <p className="font-medium text-stitch-100">
               {feedback.message}
               {state.attempts > 1 && (
-                <span className="ml-2 font-mono text-xs font-normal text-stitch-100/70">×{state.attempts}</span>
+                <span className="ml-2 font-mono text-xs font-normal text-stitch-100/70">
+                  ×{state.attempts}
+                </span>
               )}
             </p>
           </div>
@@ -129,7 +204,10 @@ export function GameScreen({ state, totalScore, onExpire, onSubmit, onChoose }: 
 
         {state.error && !timeUp && (
           <p className="flex items-start gap-2 rounded-xl bg-navy-900/80 px-4 py-3 text-[15px] text-cream-200 ring-1 ring-navy-700 animate-rise">
-            <TriangleAlert className="mt-0.5 size-4 shrink-0 text-cream-300" aria-hidden />
+            <TriangleAlert
+              className="mt-0.5 size-4 shrink-0 text-cream-300"
+              aria-hidden
+            />
             {state.error} Your guess wasn&apos;t counted — try again.
           </p>
         )}

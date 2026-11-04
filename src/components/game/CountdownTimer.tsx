@@ -3,12 +3,14 @@ import { ROUND_SECONDS } from "@/data/questions";
 
 interface CountdownTimerProps {
   remainingMs: number;
+  /** True during the read period: the clock sits full and hasn't started. */
+  waiting?: boolean;
 }
 
 const RADIUS = 20;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
-export function CountdownTimer({ remainingMs }: CountdownTimerProps) {
+export function CountdownTimer({ remainingMs, waiting = false }: CountdownTimerProps) {
   const seconds = Math.ceil(remainingMs / 1000);
   const fraction = Math.max(0, Math.min(1, remainingMs / (ROUND_SECONDS * 1000)));
   const urgent = seconds <= 10;
@@ -18,7 +20,7 @@ export function CountdownTimer({ remainingMs }: CountdownTimerProps) {
     <div
       className="flex items-center gap-3"
       role="timer"
-      aria-label={`${seconds} seconds remaining`}
+      aria-label={waiting ? `${seconds}-second clock starts after the read period` : `${seconds} seconds remaining`}
       aria-live={critical ? "assertive" : "off"}
     >
       <div className="relative size-12">
@@ -48,7 +50,7 @@ export function CountdownTimer({ remainingMs }: CountdownTimerProps) {
       </div>
       <span className="hidden items-center gap-1 text-xs font-medium uppercase tracking-[0.16em] text-navy-300 sm:flex">
         <Timer className="size-3.5" aria-hidden />
-        {urgent ? "Hurry" : "Clock"}
+        {waiting ? "Ready" : urgent ? "Hurry" : "Clock"}
       </span>
     </div>
   );
