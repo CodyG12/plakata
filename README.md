@@ -201,7 +201,8 @@ neighbour (Jim Rice).
   father/son pair missing from that list, such as Mark Leiter and his son, is handled like unrelated
   namesakes.
 - Eddie Collins has a third, unrelated namesake (a 1910–18 Negro Leagues player). The plain name defaults to
-  the Hall of Fame father, so that third player can't currently be named.
+  the Hall of Fame father, so the third player is reached only through his alias, "Eddie Collins (Negro
+  Leagues)".
 - A surname is accepted alone only if it is unique among all 24,011 players. Many famous surnames are not
   unique ("Jeter", "Pujols", "Cobb", "Ruth" is unique).
 - Nicknames work only if listed in `aliases.ts`. Reversed names ("Jeter Derek") are not recognized.

@@ -46,6 +46,8 @@ export const PLAYER_ALIASES: ReadonlyArray<readonly [alias: string, playerId: st
   ["Tim Raines Sr.", "raineti01"],
   ["Eddie Collins Jr.", "collied02"],
   ["Eddie Collins Sr.", "collied01"],
+  // A third, unrelated Eddie Collins (Negro Leagues, 1910–18). The plain name means Sr.
+  ["Eddie Collins (Negro Leagues)", "collied03"],
   ["Sandy Alomar Jr.", "alomasa02"],
   ["Sandy Alomar Sr.", "alomasa01"],
 

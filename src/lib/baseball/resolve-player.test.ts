@@ -119,6 +119,13 @@ describe("resolvePlayerName — real Lahman data", () => {
       expect(resolve("Ken Grifey Jr")).toMatchObject({ kind: "suggestion", suggestion: "Ken Griffey Jr." });
     });
 
+    it("reaches the Negro Leagues Eddie Collins only through his alias", () => {
+      expect(idOf(resolve("Eddie Collins"))).toBe("collied01");
+      expect(idOf(resolve("Eddie Collins Jr."))).toBe("collied02");
+      expect(resolve("Eddie Collins (Negro Leagues)")).toMatchObject({ kind: "resolved", player: { id: "collied03" } });
+      expect(idOf(resolve("eddie collins negro leagues"))).toBe("collied03");
+    });
+
     it("resolves an explicit Sr. directly", () => {
       expect(resolve("Ken Griffey Sr")).toMatchObject({ kind: "resolved", player: { id: "griffke01" } });
     });
