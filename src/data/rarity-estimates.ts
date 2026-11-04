@@ -27,9 +27,9 @@ export const TIER_RARITY: Record<PopularityTier, number> = {
 /**
  * Score for valid answers with no curated estimate. Uncurated players are
  * presumed less commonly named than anyone on the curated lists, so this sits
- * above the "known" tier — but it is a neutral default, not evidence of rarity.
+ * above the "known" tier, at the Plákata threshold (80) — but it is a neutral default, not evidence of rarity.
  */
-export const FALLBACK_RARITY = 75;
+export const FALLBACK_RARITY = 80;
 
 export const RARITY_ESTIMATES: Record<QuestionId, Record<string, PopularityTier>> = {
   "hr-300": {

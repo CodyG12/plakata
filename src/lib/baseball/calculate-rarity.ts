@@ -1,5 +1,6 @@
 import { FALLBACK_RARITY, RARITY_ESTIMATES, TIER_RARITY, type PopularityTier } from "@/data/rarity-estimates";
 import type { ScoreMethod, ScoreResult, ValidationResult } from "@/types/baseball";
+import { classifyRarity, strikeout } from "./scoring";
 
 /**
  * A source of rarity estimates. The MVP chains two: curated tiers, then a
@@ -43,24 +44,26 @@ export const fallbackEstimator: RarityEstimator = {
 
 export const DEFAULT_ESTIMATORS: readonly RarityEstimator[] = [curatedEstimator, fallbackEstimator];
 
-const clamp = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
+/** Score for anything that isn't a valid answer: a Strikeout, 0 points. */
+export function noAnswerScore(): ScoreResult {
+  return { valid: false, ...strikeout(), method: "none", estimateNote: null };
+}
 
-/** Scores a validated answer. Invalid/unresolved answers always score 0. */
+/**
+ * Scores a validated answer: estimate its rarity, then map that estimate to a
+ * fixed-point tier (scoring.ts). Invalid/unresolved answers are a Strikeout.
+ */
 export function calculateScore(
   validation: ValidationResult,
   questionId: string,
   estimators: readonly RarityEstimator[] = DEFAULT_ESTIMATORS,
 ): ScoreResult {
-  if (validation.status !== "valid" || !validation.playerId) {
-    return { valid: false, points: 0, rarityScore: 0, method: "none", label: "No points" };
-  }
+  if (validation.status !== "valid" || !validation.playerId) return noAnswerScore();
   for (const estimator of estimators) {
     const estimate = estimator.estimate(questionId, validation.playerId);
     if (estimate) {
-      const rarityScore = clamp(estimate.rarityScore);
-      return { valid: true, points: rarityScore, rarityScore, method: estimate.method, label: estimate.label };
+      return { valid: true, ...classifyRarity(estimate.rarityScore), method: estimate.method, estimateNote: estimate.label };
     }
   }
   throw new Error("No rarity estimator produced a score — the fallback estimator should always apply.");
 }
-

@@ -1,3 +1,4 @@
+import { MAX_POINTS_PER_ROUND } from "@/lib/baseball/scoring";
 import type { QuestionCriteria } from "@/types/baseball";
 
 /**
@@ -48,7 +49,8 @@ export type QuestionId = Question["id"];
 
 export const ROUND_COUNT = QUESTIONS.length;
 export const ROUND_SECONDS = 30;
-export const MAX_POINTS_PER_ROUND = 100;
+/** Best possible game: a Plákata every round (7 × 100 = 700). */
+export const MAX_GAME_SCORE = QUESTIONS.length * MAX_POINTS_PER_ROUND;
 
 export function getQuestion(id: string): Question | undefined {
   return QUESTIONS.find((q) => q.id === id);

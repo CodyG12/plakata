@@ -1,6 +1,12 @@
 import { Gem, Play, Timer, Trophy } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { MAX_POINTS_PER_ROUND, ROUND_COUNT, ROUND_SECONDS } from "@/data/questions";
+import { MAX_GAME_SCORE, ROUND_COUNT, ROUND_SECONDS } from "@/data/questions";
+import { SCORING_TIERS } from "@/lib/baseball/scoring";
+
+/** "Bunt 10 · Single 25 · … · Plákata 100", straight from the scoring table. */
+const HIT_LADDER = SCORING_TIERS.filter((t) => t.points > 0)
+  .map((t) => `${t.label} ${t.points}`)
+  .join(" · ");
 
 interface LandingScreenProps {
   onStart: () => void;
@@ -15,12 +21,12 @@ const RULES = [
   {
     icon: Gem,
     title: "Obscure beats obvious",
-    body: "Any valid player counts, but rarer answers earn up to 100 points. Babe Ruth won’t get you far.",
+    body: `Every valid player is a hit, and rarer answers hit harder: ${HIT_LADDER}. Babe Ruth won’t get you far.`,
   },
   {
     icon: Trophy,
-    title: `${ROUND_COUNT * MAX_POINTS_PER_ROUND} points possible`,
-    body: "Wrong guesses cost nothing but time — keep trying until the clock hits zero. A round with no valid answer scores zero.",
+    title: `${MAX_GAME_SCORE} points possible`,
+    body: "Wrong guesses cost nothing but time — keep trying until the clock hits zero. A round with no valid answer is a strikeout: zero points.",
   },
 ];
 

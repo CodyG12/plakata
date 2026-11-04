@@ -2,7 +2,8 @@
 
 A Krillion-style baseball trivia game. Each round asks for an MLB player who fits a prompt
 ("at least 300 career home runs", "played for the Seattle Mariners"…). Any valid player counts,
-but **rarer answers score more** — Babe Ruth earns 5 points; Jay Buhner earns 60.
+but **rarer answers score more**: every round is a Strikeout, Bunt, Single, Double, Triple or Plákata.
+Babe Ruth on the 300-HR question is a Bunt; Jay Buhner there is a Triple.
 
 Seven rounds, 30 seconds each, up to 100 points per round (700 max).
 
@@ -38,8 +39,9 @@ Deploys to Vercel as-is — no environment variables, database, or other service
    that several players share ("Griffey", "Johnson") must be typed as a full name. A full name shared by
    unrelated players ("Randy Johnson") counts if any of them fits the question; if several fit, you pick
    which one you meant.
-5. The first **valid** answer ends the round and scores its estimated rarity.
-6. When time runs out without a valid answer, the round scores zero.
+5. The first **valid** answer ends the round. It's always a hit, classified by its estimated rarity
+   (see [Scoring](#scoring)).
+6. When time runs out without a valid answer, the round is a **Strikeout** and scores zero.
 
 An in-progress game survives a page refresh (saved in `localStorage`; the timer keeps counting).
 
@@ -62,7 +64,8 @@ src/
     resolve-player.ts     Typed text → exactly one player, or ambiguous/unrecognized (no question knowledge)
     criteria.ts           Does player X satisfy question criteria Y? (+ factual explanation)
     validate-answer.ts    resolve-player → criteria → ValidationResult (generic messages when rejected)
-    calculate-rarity.ts   ValidationResult → ScoreResult via a chain of RarityEstimators
+    calculate-rarity.ts   ValidationResult → rarity estimate (chain of RarityEstimators) → ScoreResult
+    scoring.ts            Tier names, rarity thresholds and fixed points: the only place they're defined
   lib/game/
     reducer.ts            Game state machine (landing → playing → round-result → game-complete)
     use-countdown.ts      Deadline-based timer hook (one interval per round, always cleaned up)
@@ -207,19 +210,41 @@ neighbour (Jim Rice).
   unique ("Jeter", "Pujols", "Cobb", "Ruth" is unique).
 - Nicknames work only if listed in `aliases.ts`. Reversed names ("Jeter Derek") are not recognized.
 
-## Rarity scoring (provisional)
+## Scoring
 
-Scores are labeled **"Estimated Rarity"** throughout the UI. They are **not** measured community answer
-frequencies, search volume, or pageviews.
+Every round ends in exactly one tier with fixed points. All of it lives in `src/lib/baseball/scoring.ts`.
+
+| Tier      | Estimated rarity    | Points |
+|-----------|---------------------|-------:|
+| Strikeout | no valid answer     |      0 |
+| Bunt      | 0–19                |     10 |
+| Single    | 20–39               |     25 |
+| Double    | 40–59               |     50 |
+| Triple    | 60–79               |     75 |
+| Plákata   | 80–100              |    100 |
+
+- The thresholds are **provisional**; edit `SCORING_TIERS` to change them.
+- `classifyRarity()` rounds and clamps the estimate to 0–100, then picks the highest tier whose minimum
+  it reaches. A valid answer is always at least a Bunt, never zero.
+- A Strikeout happens only when time runs out without a valid answer, however many wrong guesses came
+  first.
+- The game total is the sum of the round points: 700 at most (7 × Plákata).
+- The estimated rarity is stored apart from the points and still shown, smaller, on the round result.
+
+### Rarity estimates (provisional)
+
+Rarity estimates are **not** measured community answer frequencies, search volume, or pageviews.
 
 - `rarity-estimates.ts` puts well-known players into hand-curated, **question-specific** tiers:
-  iconic **5**, famous **20**, well-known **40**, known **60**. The same player can score differently on
-  different questions. Jay Buhner is 20 on the Mariners question, 60 on the 300-HR question, and an
-  uncurated 75 as a Yankee.
-- Any valid player who isn't curated for that question gets the documented **fallback of 75** ("deep cut,
+  iconic **5** (Bunt), famous **20** (Single), well-known **40** (Double), known **60** (Triple). The same
+  player can score differently on different questions. Jay Buhner is 20 on the Mariners question
+  (Single), 60 on the 300-HR question (Triple), and an uncurated 80 as a Yankee (Plákata).
+- Any valid player who isn't curated for that question gets the documented **fallback of 80** ("deep cut,
   provisional"). Uncurated players are presumed less commonly named than curated ones, but there's no
   evidence for how much.
-- Invalid answers, unanswered rounds and timeouts score 0. Points equal the rarity score.
+- The fallback sits exactly at the Plákata threshold, so **every uncurated valid answer is a Plákata**,
+  and curated answers top out at Triple. Lowering `FALLBACK_RARITY` below 80 would make Plákata
+  unreachable with the current estimates.
 - The test suite verifies that every curated player ID exists and actually satisfies its question. Writing
   that check caught several of the author's wrong assumptions, such as Mel Ott never winning an MVP and
   Christian Yelich being short of 300 HR.
@@ -242,14 +267,18 @@ Bayesian smoothing toward the curated prior.
   none fit, and offered as a choice when several fit (only listed choices accepted); rejected results expose
   nothing but a status and a generic message.
 - **Damerau-Levenshtein** distance and its early cut-off.
-- **Scoring:** curated vs. fallback scores, determinism, the 0–100 bounds, and that every curated ID is valid.
+- **Scoring:** the six tiers, names and points; every threshold boundary; every rarity 0–100 mapping to
+  exactly one non-zero hit; clamping; Strikeouts at zero; the 700 maximum; curated vs. fallback estimates,
+  determinism, and that every curated ID is valid.
+- **Screens:** the round result, final box score, landing rules and progress labels render the tier names
+  and points; every tier color and animation has a theme token.
 - **Game reducer:** the full seven-round loop and the total; unlimited incorrect guesses with the timer
-  untouched; a valid answer ending the round; double-submit and duplicate-response prevention; timeout
-  scoring zero; late and stale responses; no skipping ahead; restart; save/restore including corrupted
+  untouched; a valid answer ending the round; double-submit and duplicate-response prevention; timeouts
+  as Strikeouts; late and stale responses; no skipping ahead; restart; save/restore including corrupted
   saves.
 
-Not automated: component/browser tests. The UI was checked manually in Chrome at desktop width and at 375px
-mobile width.
+Not automated: browser tests. Screens are covered by server-render tests (`results-render.test.ts`). The
+tiered results UI was checked manually in Chrome at desktop width; it has not yet been re-checked at 375px.
 
 ## Ideas for version two
 

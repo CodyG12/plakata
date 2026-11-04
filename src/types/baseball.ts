@@ -1,3 +1,5 @@
+import type { ScoringResult } from "@/lib/baseball/scoring";
+
 /** One MLB (or SABR-recognized major league) player, derived from the Lahman database. */
 export interface BaseballPlayer {
   /** Lahman playerID — stable and unique, e.g. "griffke02". */
@@ -80,13 +82,13 @@ export interface ValidationResult {
 
 export type ScoreMethod = "curated" | "fallback" | "none";
 
-export interface ScoreResult {
+/**
+ * A round's score: its baseball tier and fixed points (see
+ * src/lib/baseball/scoring.ts), plus where the rarity estimate came from.
+ */
+export interface ScoreResult extends ScoringResult {
   valid: boolean;
-  /** Points awarded this round (0–100). Equal to rarityScore for valid answers. */
-  points: number;
-  /** Estimated rarity, 0–100. 0 for invalid or unanswered rounds. */
-  rarityScore: number;
   method: ScoreMethod;
-  /** Short label explaining the estimate, e.g. "Famous answer". */
-  label: string;
+  /** Short note explaining the rarity estimate, e.g. "Famous answer"; null for a Strikeout. */
+  estimateNote: string | null;
 }

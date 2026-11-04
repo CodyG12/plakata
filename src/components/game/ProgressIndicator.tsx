@@ -21,7 +21,7 @@ export function ProgressIndicator({ roundIndex, rounds }: ProgressIndicatorProps
           return (
             <li
               key={i}
-              aria-label={`Round ${i + 1}: ${played ? `${played.score.points} points` : current ? "in progress" : "upcoming"}`}
+              aria-label={`Round ${i + 1}: ${played ? `${played.score.label}, ${played.score.points} points` : current ? "in progress" : "upcoming"}`}
               className={[
                 "h-1.5 rounded-full transition-all duration-300",
                 current ? "w-7 bg-cream-100" : "w-4",

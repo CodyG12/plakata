@@ -3,8 +3,9 @@
 import { CircleCheck, CircleX, Hourglass, RotateCcw, Trophy } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { Button } from "@/components/ui/Button";
-import { MAX_POINTS_PER_ROUND, QUESTIONS, ROUND_COUNT } from "@/data/questions";
+import { MAX_GAME_SCORE, QUESTIONS, ROUND_COUNT } from "@/data/questions";
 import type { RoundRecord } from "@/types/game";
+import { TierBadge } from "./TierBadge";
 
 interface FinalResultsProps {
   rounds: RoundRecord[];
@@ -12,7 +13,7 @@ interface FinalResultsProps {
   onPlayAgain: () => void;
 }
 
-const MAX_SCORE = ROUND_COUNT * MAX_POINTS_PER_ROUND;
+const MAX_SCORE = MAX_GAME_SCORE;
 
 function verdict(total: number): string {
   const pct = total / MAX_SCORE;
@@ -49,7 +50,7 @@ export function FinalResults({ rounds, totalScore, onPlayAgain }: FinalResultsPr
           {best && best.score.points > 0 && (
             <>
               {" "}
-              · rarest pick: <span className="text-cream-100">{best.submittedText}</span> ({best.score.points})
+              · best hit: <span className="text-cream-100">{best.submittedText}</span> ({best.score.label})
             </>
           )}
         </p>
@@ -58,7 +59,10 @@ export function FinalResults({ rounds, totalScore, onPlayAgain }: FinalResultsPr
       <div className="overflow-hidden rounded-3xl bg-cream-100 text-ink shadow-2xl shadow-black/30">
         <div className="flex items-center justify-between border-b border-cream-300 px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted sm:px-6">
           <span>Box score</span>
-          <span>Pts</span>
+          <span className="flex gap-4 sm:gap-6">
+            <span>Result</span>
+            <span className="w-12 text-right">Pts</span>
+          </span>
         </div>
         <ol className="divide-y divide-dashed divide-cream-300">
           {rounds.map((round, i) => {
@@ -74,12 +78,13 @@ export function FinalResults({ rounds, totalScore, onPlayAgain }: FinalResultsPr
                   </p>
                   <p className="truncate text-xs text-ink-muted">{QUESTIONS[i].prompt.replace(/^Name an MLB player /, "")}</p>
                 </div>
+                <TierBadge tier={round.score.tier} className="shrink-0" />
                 <span
-                  className={`w-10 shrink-0 text-right font-mono text-lg font-semibold tabular-nums ${
+                  className={`w-12 shrink-0 text-right font-mono text-lg font-semibold tabular-nums ${
                     round.score.points > 0 ? "text-stitch-600" : "text-ink-muted"
                   }`}
                 >
-                  {round.score.points}
+                  +{round.score.points}
                 </span>
               </li>
             );
@@ -92,7 +97,7 @@ export function FinalResults({ rounds, totalScore, onPlayAgain }: FinalResultsPr
       </div>
 
       <p className="text-center text-xs leading-relaxed text-navy-400">
-        Rarity scores are provisional estimates, not yet based on real community answers.
+        Hits are classified from provisional rarity estimates, not yet based on real community answers.
       </p>
 
       <div className="flex justify-center">

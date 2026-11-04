@@ -28,12 +28,55 @@
   --color-turf-600: #2f7a4d;
   --color-turf-100: #dcefe2;
 
+  /* Scoring tiers (see src/lib/baseball/scoring.ts) */
+  --color-single-600: #2459b8;
+  --color-single-100: #dde7f8;
+  --color-double-600: #0e7470;
+  --color-double-100: #d3eeec;
+  --color-triple-600: #946000;
+  --color-triple-400: #d9a23a;
+  --color-triple-100: #f6e7c8;
+
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
   --font-display: var(--font-fraunces), ui-serif, Georgia, serif;
 
   --animate-rise: rise 360ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
   --animate-pop: pop 420ms cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+  /* Plákata: the badge glows twice while a ball arcs up and out of the park. */
+  --animate-glow: glow 1100ms ease-out 2;
+  --animate-homer-x: homer-x 1300ms linear 250ms both;
+  --animate-homer-y: homer-y 1300ms cubic-bezier(0.15, 0.7, 0.4, 1) 250ms both;
+
+  @keyframes glow {
+    from {
+      box-shadow: 0 0 0 0 rgb(204 58 47 / 0.55);
+    }
+    to {
+      box-shadow: 0 0 0 16px rgb(204 58 47 / 0);
+    }
+  }
+  @keyframes homer-x {
+    from {
+      transform: translateX(0);
+    }
+    to {
+      transform: translateX(160px);
+    }
+  }
+  @keyframes homer-y {
+    0% {
+      transform: translateY(0) scale(1);
+      opacity: 1;
+    }
+    80% {
+      opacity: 1;
+    }
+    100% {
+      transform: translateY(-110px) scale(0.35);
+      opacity: 0;
+    }
+  }
 
   @keyframes rise {
     from {

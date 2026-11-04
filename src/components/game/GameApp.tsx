@@ -11,7 +11,7 @@ import { LandingScreen } from "./LandingScreen";
 import { RoundResult } from "./RoundResult";
 
 // v2: saved state now includes per-round attempt counts.
-const STORAGE_KEY = "plakata:game:v2";
+const STORAGE_KEY = "plakata:game:v3";
 
 function loadSavedGame(): GameState | null {
   try {

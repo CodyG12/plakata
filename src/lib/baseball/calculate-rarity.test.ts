@@ -12,8 +12,9 @@ describe("calculateScore", () => {
   it("uses curated tiers when available", () => {
     expect(calculateScore(valid("ruthba01"), "hr-300")).toMatchObject({
       valid: true,
-      points: TIER_RARITY.iconic,
-      rarityScore: TIER_RARITY.iconic,
+      tier: "bunt",
+      points: 10,
+      estimatedRarity: TIER_RARITY.iconic,
       method: "curated",
     });
   });
@@ -21,7 +22,8 @@ describe("calculateScore", () => {
   it("scores the same player differently per question", () => {
     const yankees = calculateScore(valid("buhneja01"), "yankees");
     const mariners = calculateScore(valid("buhneja01"), "mariners");
-    expect(mariners.rarityScore).toBeLessThan(yankees.rarityScore);
+    expect(mariners.estimatedRarity!).toBeLessThan(yankees.estimatedRarity!);
+    expect(mariners.points).toBeLessThan(yankees.points);
   });
 
   // Ben Gamel (Mariners outfielder, 2017–18) has no curated estimate for that question.
@@ -33,20 +35,28 @@ describe("calculateScore", () => {
 
   it("uses the documented fallback for uncurated valid players", () => {
     const result = calculateScore(valid(uncuratedMariner), "mariners");
-    expect(result).toMatchObject({ points: FALLBACK_RARITY, method: "fallback" });
+    expect(result).toMatchObject({ estimatedRarity: FALLBACK_RARITY, tier: "plakata", points: 100, method: "fallback" });
   });
 
   it("gives obscure answers more points than famous ones", () => {
-    const famous = calculateScore(valid("griffke02"), "mariners").points;
-    const recognizable = calculateScore(valid("putzjj01"), "mariners").points;
-    const obscure = calculateScore(valid(uncuratedMariner), "mariners").points;
-    expect(recognizable).toBeGreaterThan(famous);
-    expect(obscure).toBeGreaterThan(recognizable);
+    const famous = calculateScore(valid("griffke02"), "mariners");
+    const recognizable = calculateScore(valid("putzjj01"), "mariners");
+    const obscure = calculateScore(valid(uncuratedMariner), "mariners");
+    expect(recognizable.estimatedRarity!).toBeGreaterThan(famous.estimatedRarity!);
+    expect(obscure.estimatedRarity!).toBeGreaterThan(recognizable.estimatedRarity!);
+    expect(recognizable.points).toBeGreaterThan(famous.points);
+    expect(obscure.points).toBeGreaterThan(recognizable.points);
   });
 
   it("awards zero for invalid or unresolved answers", () => {
     const invalid: ValidationResult = { status: "ineligible", message: "" };
-    expect(calculateScore(invalid, "cy-young")).toMatchObject({ points: 0, rarityScore: 0, method: "none" });
+    expect(calculateScore(invalid, "cy-young")).toMatchObject({
+      valid: false,
+      tier: "strikeout",
+      points: 0,
+      estimatedRarity: null,
+      method: "none",
+    });
     const notFound: ValidationResult = { status: "unrecognized", message: "" };
     expect(calculateScore(notFound, "cy-young").points).toBe(0);
   });
@@ -59,7 +69,24 @@ describe("calculateScore", () => {
 
   it("supports pluggable estimators and clamps to 0–100", () => {
     const community: RarityEstimator = { estimate: () => ({ rarityScore: 140, method: "curated", label: "x" }) };
-    expect(calculateScore(valid("ruthba01"), "hr-300", [community]).points).toBe(100);
+    expect(calculateScore(valid("ruthba01"), "hr-300", [community])).toMatchObject({
+      tier: "plakata",
+      points: 100,
+      estimatedRarity: 100,
+    });
+    const zero: RarityEstimator = { estimate: () => ({ rarityScore: 0, method: "curated", label: "x" }) };
+    expect(calculateScore(valid("ruthba01"), "hr-300", [zero])).toMatchObject({ tier: "bunt", points: 10 });
+  });
+
+  it("maps each curated popularity tier (and the fallback) to a fixed-point hit", () => {
+    expect(TIER_RARITY).toEqual({ iconic: 5, famous: 20, wellKnown: 40, known: 60 });
+    const byRarity = (r: number) =>
+      calculateScore(valid("x"), "q", [{ estimate: () => ({ rarityScore: r, method: "curated", label: "" }) }]).tier;
+    expect(byRarity(TIER_RARITY.iconic)).toBe("bunt");
+    expect(byRarity(TIER_RARITY.famous)).toBe("single");
+    expect(byRarity(TIER_RARITY.wellKnown)).toBe("double");
+    expect(byRarity(TIER_RARITY.known)).toBe("triple");
+    expect(byRarity(FALLBACK_RARITY)).toBe("plakata");
   });
 
   it("keeps every score within 0–100", () => {

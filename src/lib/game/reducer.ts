@@ -1,4 +1,6 @@
 import { QUESTIONS, ROUND_COUNT, ROUND_SECONDS } from "@/data/questions";
+import { noAnswerScore } from "@/lib/baseball/calculate-rarity";
+import { isScoringTier } from "@/lib/baseball/scoring";
 import type { ScoreResult } from "@/types/baseball";
 import type { AnswerResponse, GameState } from "@/types/game";
 
@@ -28,14 +30,8 @@ export type GameAction =
   | { type: "RESTART" }
   | { type: "HYDRATE"; state: GameState; now: number };
 
-/** Score for a round where time ran out before a valid answer. */
-export const TIMED_OUT_SCORE: ScoreResult = {
-  valid: false,
-  points: 0,
-  rarityScore: 0,
-  method: "none",
-  label: "Time expired",
-};
+/** Score for a round where time ran out before a valid answer: a Strikeout. */
+export const TIMED_OUT_SCORE: ScoreResult = noAnswerScore();
 
 /**
  * Grace period for a correct answer that was submitted before the deadline but
@@ -212,7 +208,13 @@ function hydrate(saved: GameState, now: number): GameState {
 function isPlausibleState(s: GameState): boolean {
   if (!s || typeof s !== "object" || !Array.isArray(s.rounds)) return false;
   if (!Number.isInteger(s.roundIndex) || s.roundIndex < 0 || s.roundIndex >= ROUND_COUNT) return false;
-  if (s.rounds.some((r, i) => r?.questionId !== QUESTIONS[i]?.id || typeof r.score?.points !== "number")) return false;
+  if (
+    s.rounds.some(
+      (r, i) => r?.questionId !== QUESTIONS[i]?.id || typeof r.score?.points !== "number" || !isScoringTier(r.score.tier),
+    )
+  ) {
+    return false;
+  }
   switch (s.status) {
     case "landing":
       return s.rounds.length === 0;

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { QUESTIONS, ROUND_COUNT, ROUND_SECONDS } from "@/data/questions";
+import { MAX_GAME_SCORE } from "@/data/questions";
+import { classifyRarity } from "@/lib/baseball/scoring";
 import type { ScoreResult, ValidationResult } from "@/types/baseball";
 import type { AnswerResponse, GameState } from "@/types/game";
 import { SUBMIT_GRACE_MS, gameReducer, initialGameState, totalScore, type GameAction } from "./reducer";
@@ -7,8 +9,8 @@ import { SUBMIT_GRACE_MS, gameReducer, initialGameState, totalScore, type GameAc
 const T0 = 1_000_000;
 const DEADLINE = T0 + ROUND_SECONDS * 1000;
 
-/** A valid answer worth `points`. */
-const correct = (points: number): AnswerResponse => {
+/** A valid answer with this estimated rarity (scored through the real tier table). */
+const correct = (rarity: number): AnswerResponse => {
   const validation: ValidationResult = {
     status: "valid",
     playerId: "x",
@@ -16,7 +18,7 @@ const correct = (points: number): AnswerResponse => {
     matchType: "exact",
     message: "",
   };
-  const score: ScoreResult = { valid: true, points, rarityScore: points, method: "curated", label: "" };
+  const score: ScoreResult = { valid: true, ...classifyRarity(rarity), method: "curated", estimateNote: "" };
   return { validation, score };
 };
 
@@ -44,18 +46,39 @@ describe("gameReducer", () => {
     expect(start()).toMatchObject({ status: "playing", roundIndex: 0, deadline: DEADLINE, rounds: [], attempts: 0 });
   });
 
-  it("plays all seven rounds and totals the score", () => {
+  /** Plays a full game: a number is a valid answer with that rarity, null is a timeout. */
+  const playGame = (rarities: Array<number | null>) => {
     let s = start();
-    const points = [5, 20, 40, 60, 75, 0, 100];
-    for (const p of points) {
-      s = p > 0 ? guess(s, correct(p), s.deadline! - 1000) : gameReducer(s, { type: "TIMER_EXPIRED", roundIndex: s.roundIndex });
+    for (const r of rarities) {
+      s = r !== null ? guess(s, correct(r), s.deadline! - 1000) : gameReducer(s, { type: "TIMER_EXPIRED", roundIndex: s.roundIndex });
       expect(s.status).toBe("round-result");
       s = gameReducer(s, { type: "NEXT_ROUND", now: T0 });
     }
+    return s;
+  };
+
+  it("plays all seven rounds and totals the fixed tier points", () => {
+    const s = playGame([5, 20, 40, 60, 75, null, 100]);
     expect(s.status).toBe("game-complete");
     expect(s.rounds).toHaveLength(ROUND_COUNT);
     expect(s.rounds.map((r) => r.questionId)).toEqual(QUESTIONS.map((q) => q.id));
-    expect(totalScore(s)).toBe(points.reduce((a, b) => a + b, 0));
+    expect(s.rounds.map((r) => r.score.tier)).toEqual(["bunt", "single", "double", "triple", "triple", "strikeout", "plakata"]);
+    expect(s.rounds.map((r) => r.score.points)).toEqual([10, 25, 50, 75, 75, 0, 100]);
+    expect(totalScore(s)).toBe(335);
+    expect(totalScore(s)).toBe(s.rounds.reduce((sum, r) => sum + r.score.points, 0));
+  });
+
+  it("scores 700 for a perfect game and 0 for seven strikeouts", () => {
+    expect(totalScore(playGame(Array(7).fill(100)))).toBe(MAX_GAME_SCORE);
+    expect(MAX_GAME_SCORE).toBe(700);
+    const shutout = playGame(Array(7).fill(null));
+    expect(totalScore(shutout)).toBe(0);
+    expect(shutout.rounds.every((r) => r.score.tier === "strikeout")).toBe(true);
+  });
+
+  it("awards a rarity-0 answer a Bunt, never zero", () => {
+    const s = guess(start(), correct(0));
+    expect(s.rounds[0].score).toMatchObject({ tier: "bunt", points: 10 });
   });
 
   describe("multiple attempts", () => {
@@ -85,7 +108,7 @@ describe("gameReducer", () => {
       s = guess(s, correct(60));
       expect(s.status).toBe("round-result");
       expect(s.rounds[0]).toMatchObject({ timedOut: false, attempts: 2, submittedText: "Some Player" });
-      expect(totalScore(s)).toBe(60);
+      expect(totalScore(s)).toBe(75); // rarity 60 → Triple
     });
 
     it("keeps the round open after an ambiguous name, counting it as an attempt", () => {
@@ -173,21 +196,22 @@ describe("gameReducer", () => {
       const s = guess(start(), correct(40));
       const again = guess(s, correct(100));
       expect(again.rounds).toHaveLength(1);
-      expect(totalScore(again)).toBe(40);
+      expect(totalScore(again)).toBe(50); // rarity 40 → Double
     });
   });
 
   describe("timer", () => {
-    it("expiring gives zero points and shows the result", () => {
+    it("expiring with no submission is a Strikeout worth zero", () => {
       const s = run(start(), { type: "TIMER_EXPIRED", roundIndex: 0 });
       expect(s.status).toBe("round-result");
       expect(s.rounds[0]).toMatchObject({ timedOut: true, submittedText: null, attempts: 0 });
-      expect(s.rounds[0].score.points).toBe(0);
+      expect(s.rounds[0].score).toMatchObject({ tier: "strikeout", label: "Strikeout", points: 0, estimatedRarity: null });
     });
 
-    it("records wrong guesses on a timed-out round", () => {
+    it("records wrong guesses on a timed-out round, still a Strikeout", () => {
       const s = run(guess(guess(start(), wrongPlayer), wrongPlayer), { type: "TIMER_EXPIRED", roundIndex: 0 });
       expect(s.rounds[0]).toMatchObject({ timedOut: true, attempts: 2 });
+      expect(s.rounds[0].score).toMatchObject({ tier: "strikeout", points: 0 });
     });
 
     it("rejects a submission started at or after the deadline", () => {
@@ -209,7 +233,7 @@ describe("gameReducer", () => {
         type: "SUBMIT_RESOLVED", roundIndex: 0, submittedText: "p", response: correct(60), now: DEADLINE + 500,
       });
       expect(resolved.rounds[0]).toMatchObject({ timedOut: false });
-      expect(totalScore(resolved)).toBe(60);
+      expect(totalScore(resolved)).toBe(75); // rarity 60 → Triple
     });
 
     it("never awards points for a correct response that arrives far too late", () => {
@@ -288,6 +312,13 @@ describe("gameReducer", () => {
       expect(
         gameReducer(initialGameState, { type: "HYDRATE", state: "nonsense" as unknown as GameState, now: T0 }),
       ).toEqual(initialGameState);
+      // A save from before tiered scoring (points but no tier) is discarded.
+      const done = guess(start(), correct(60));
+      const legacy = {
+        ...done,
+        rounds: done.rounds.map((r) => ({ ...r, score: { valid: true, points: 60, rarityScore: 60 } })),
+      } as unknown as GameState;
+      expect(gameReducer(initialGameState, { type: "HYDRATE", state: legacy, now: T0 })).toEqual(initialGameState);
     });
   });
 });
