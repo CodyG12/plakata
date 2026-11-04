@@ -1,4 +1,4 @@
-# Deep Cuts — baseball trivia where obscure wins
+# Plákata — baseball trivia where obscure wins
 
 A Krillion-style baseball trivia game. Each round asks for an MLB player who fits a prompt
 ("at least 300 career home runs", "played for the Seattle Mariners"…). Any valid player counts,
@@ -13,25 +13,27 @@ npm install
 npm run dev          # http://localhost:3000
 ```
 
-| Command              | What it does                                    |
-| -------------------- | ----------------------------------------------- |
-| `npm run dev`        | Dev server                                      |
-| `npm test`           | Unit tests (Vitest)                             |
-| `npm run lint`       | ESLint                                          |
-| `npm run typecheck`  | TypeScript                                      |
-| `npm run build`      | Production build (`npm start` to serve it)      |
-| `npm run build:data` | Regenerate `src/data/players.json` (see below)  |
+| Command              | What it does                                   |
+| -------------------- | ---------------------------------------------- |
+| `npm run dev`        | Dev server                                     |
+| `npm test`           | Unit tests (Vitest)                            |
+| `npm run lint`       | ESLint                                         |
+| `npm run typecheck`  | TypeScript                                     |
+| `npm run build`      | Production build (`npm start` to serve it)     |
+| `npm run build:data` | Regenerate `src/data/players.json` (see below) |
 
 Deploys to Vercel as-is — no environment variables, database, or other services.
 
 ## How to play
 
 1. Press **Play Game**.
-2. Type a player's name. Suggestions appear after two letters; use ↑/↓ and **Enter**, or click one.
-3. Your first answer that resolves to a real player is locked in — right or wrong.
-   Typos ("not found") don't use up the round; the clock keeps running and you can try again.
-4. If the name you typed belongs to several qualifying players, you'll be asked which one you meant.
-5. When time runs out with nothing locked in, the round scores zero.
+2. Type a player's name from memory and press **Enter** or **Submit**. There are no suggestions, so the
+   interface never hints at possible answers.
+3. **Guess as many times as you like.** A wrong player or an unrecognized name shows "Incorrect answer.
+   Try again!", clears the field, and the clock keeps running. Wrong guesses cost nothing but time.
+4. The first **valid** answer ends the round and scores its estimated rarity.
+5. If the name you typed belongs to several qualifying players, you'll be asked which one you meant.
+6. When time runs out without a valid answer, the round scores zero.
 
 An in-progress game survives a page refresh (saved in `localStorage`; the timer keeps counting).
 
@@ -49,7 +51,7 @@ src/
     aliases.ts            Nicknames / Jr.-Sr. disambiguation → player IDs
   lib/baseball/           Pure, UI-independent game logic
     normalize-name.ts     Case/accent/punctuation/initials normalization (not fuzzy)
-    dataset.ts            Player index: lookup by name, alias, surname; autocomplete search
+    dataset.ts            Player index: lookup by name, alias, surname
     criteria.ts           Does player X satisfy question criteria Y? (+ factual explanation)
     validate-answer.ts    Input → canonical player → ValidationResult
     calculate-rarity.ts   ValidationResult → ScoreResult via a chain of RarityEstimators
@@ -57,20 +59,24 @@ src/
     reducer.ts            Game state machine (landing → playing → round-result → game-complete)
     use-countdown.ts      Deadline-based timer hook (one interval per round, always cleaned up)
   app/api/
-    players/search        GET  ?q=   → autocomplete suggestions (searches ALL players)
     answers               POST {questionId, input | playerId} → { validation, score? }
   components/game/        Screens: Landing, Game, RoundResult, FinalResults + parts
 ```
 
-**Why server routes?** The full player dataset is ~3.5 MB, too large to ship to the browser. Validation and
-autocomplete run in two small Next.js route handlers; the client bundle contains no player data. All game
+**Why server routes?** The full player dataset is ~3.5 MB, too large to ship to the browser. Validation runs
+in one small Next.js route handler; the client bundle contains no player data. All game
 logic is plain TypeScript and unit-tested independently of React and Next.
 
 **State machine.** Every round-scoped action carries its `roundIndex`, and the reducer rejects anything that
 doesn't match the current state. That makes stale timer ticks, double submits, late network responses, and
 skipping ahead harmless. The timer stores an absolute deadline rather than a counter, so it can't drift or
-double-count, and it survives refreshes. A submission sent before the deadline is honored if its response
-arrives within a 3-second grace period.
+double-count, and it survives refreshes.
+
+**Round rules in the reducer.** Only a valid answer ends a round early. Incorrect guesses (a wrong player or
+an unknown name) increment an attempt counter and keep the round open. Ambiguous names prompt a choice and
+don't count as attempts. Network errors don't count either. A guess can't start at or after the deadline.
+A _correct_ guess sent before the deadline still counts if its response arrives within a 3-second grace
+period. Anything else that resolves after the deadline ends the round with zero points.
 
 ## Player data
 
@@ -86,15 +92,15 @@ npm run build:data -- /tmp/lahman
 That includes the leagues SABR recognizes as major: NA (1871–75), AA, UA, PL, FL, and the Negro Leagues
 (1920–48).
 
-| Question | Qualifying players | Rule (all from Lahman) |
-| --- | --- | --- |
-| 300+ career HR | 165 | Sum of `Batting.HR` |
-| MVP winner | 160 | `AwardsPlayers` "Most Valuable Player" |
-| Played for the Yankees | 1,837 | Any `Appearances` row with teamID `NYA` (1903–present) |
-| 2,000+ career hits | 298 | Sum of `Batting.H` |
-| Cy Young winner | 88 | `AwardsPlayers` "Cy Young Award" |
-| Played for the Mariners | 1,036 | Any `Appearances` row with teamID `SEA` (1977–present) |
-| Hall of Fame | 281 | `HallOfFame` inducted = Y **and** category = Player |
+| Question                | Qualifying players | Rule (all from Lahman)                                 |
+| ----------------------- | ------------------ | ------------------------------------------------------ |
+| 300+ career HR          | 165                | Sum of `Batting.HR`                                    |
+| MVP winner              | 160                | `AwardsPlayers` "Most Valuable Player"                 |
+| Played for the Yankees  | 1,837              | Any `Appearances` row with teamID `NYA` (1903–present) |
+| 2,000+ career hits      | 298                | Sum of `Batting.H`                                     |
+| Cy Young winner         | 88                 | `AwardsPlayers` "Cy Young Award"                       |
+| Played for the Mariners | 1,036              | Any `Appearances` row with teamID `SEA` (1977–present) |
+| Hall of Fame            | 281                | `HallOfFame` inducted = Y **and** category = Player    |
 
 **Known limitations and judgment calls**
 
@@ -146,14 +152,16 @@ Bayesian smoothing toward the curated prior.
 
 ## Tests
 
-`npm test` runs 53 unit tests covering:
+`npm test` runs 60 unit tests covering:
 
 - **Normalization:** case, accents, apostrophes, initials, suffixes.
 - **Validation against the real dataset:** valid and invalid answers for all seven questions, aliases,
   accented names, not-found input, the three duplicate-name outcomes, and surname-only input.
 - **Scoring:** curated vs. fallback scores, determinism, the 0–100 bounds, and that every curated ID is valid.
-- **Game reducer:** the full seven-round loop and the total, double-submit prevention, timeout scoring zero,
-  late and stale responses, no skipping ahead, restart, and save/restore including corrupted saves.
+- **Game reducer:** the full seven-round loop and the total; unlimited incorrect guesses with the timer
+  untouched; a valid answer ending the round; double-submit and duplicate-response prevention; timeout
+  scoring zero; late and stale responses; no skipping ahead; restart; save/restore including corrupted
+  saves.
 
 Not automated: component/browser tests. The UI was checked manually in Chrome at desktop width and at 375px
 mobile width.

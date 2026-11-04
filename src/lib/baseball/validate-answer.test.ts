@@ -140,24 +140,3 @@ describe("dataset integrity", () => {
     expect(index.getById("aaronha01")).toMatchObject({ hr: 755, hits: 3771 });
   });
 });
-
-describe("search (autocomplete)", () => {
-  it("ranks prefix matches and well-known players first", () => {
-    const results = index.search("griffey");
-    expect(results[0].id).toBe("griffke02");
-    expect(results.map((r) => r.id)).toContain("griffke01");
-  });
-
-  it("treats first- and last-name prefixes equally, ranking by prominence", () => {
-    expect(index.search("griff")[0].id).toBe("griffke02");
-  });
-
-  it("matches on later name tokens and aliases", () => {
-    expect(index.search("buhn")[0].id).toBe("buhneja01");
-    expect(index.search("big pa")[0].id).toBe("ortizda01");
-  });
-
-  it("requires at least two characters", () => {
-    expect(index.search("a")).toEqual([]);
-  });
-});

@@ -1,6 +1,6 @@
 "use client";
 
-import { CircleHelp, CircleX, Users } from "lucide-react";
+import { CircleHelp, CircleX, TriangleAlert, Users } from "lucide-react";
 import { QUESTIONS } from "@/data/questions";
 import { useCountdown } from "@/lib/game/use-countdown";
 import type { PlayerSummary } from "@/types/baseball";
@@ -22,6 +22,7 @@ export function GameScreen({ state, totalScore, onExpire, onSubmitText, onSubmit
   const question = QUESTIONS[state.roundIndex];
   const timeUp = remainingMs <= 0;
   const feedback = state.feedback;
+  const incorrect = feedback !== null && feedback.status !== "ambiguous";
 
   return (
     <section className="flex flex-col gap-8" aria-labelledby="question">
@@ -36,7 +37,7 @@ export function GameScreen({ state, totalScore, onExpire, onSubmitText, onSubmit
         </div>
       </header>
 
-      {/* GameApp keys this whole screen by round, so the input and animation reset per round. */}
+      {/* GameApp keys this whole screen by round, so everything resets per round. */}
       <div className="animate-rise">
         <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-stitch-400">
           Round {state.roundIndex + 1}
@@ -47,15 +48,13 @@ export function GameScreen({ state, totalScore, onExpire, onSubmitText, onSubmit
         >
           {question.prompt}
         </h1>
-        <p className="mt-3 text-[15px] text-navy-300">Rarer players score more. One locked-in answer per round.</p>
+        <p className="mt-3 text-[15px] text-navy-300">
+          Rarer players score more. Guess as often as you like before time runs out.
+        </p>
       </div>
 
-      <AnswerInput
-        disabled={timeUp}
-        pending={state.pending}
-        onSubmitText={onSubmitText}
-        onSubmitPlayer={onSubmitPlayer}
-      />
+      {/* Remounting on each incorrect attempt clears and refocuses the field. */}
+      <AnswerInput key={state.attempts} disabled={timeUp} pending={state.pending} onSubmit={onSubmitText} />
 
       <div aria-live="polite" className="min-h-6">
         {feedback?.status === "ambiguous" && feedback.candidates && (
@@ -80,15 +79,34 @@ export function GameScreen({ state, totalScore, onExpire, onSubmitText, onSubmit
             </div>
           </div>
         )}
-        {feedback && feedback.status !== "ambiguous" && (
-          <p className="flex items-start gap-2 rounded-xl bg-stitch-600/15 px-4 py-3 text-[15px] text-stitch-100 ring-1 ring-stitch-500/40 animate-rise">
+
+        {incorrect && !timeUp && (
+          // key = attempt number, so the message re-animates on every wrong guess.
+          <div
+            key={state.attempts}
+            className="flex items-start gap-2 rounded-xl bg-stitch-600/15 px-4 py-3 text-[15px] ring-1 ring-stitch-500/40 animate-rise"
+          >
             <CircleX className="mt-0.5 size-4 shrink-0 text-stitch-400" aria-hidden />
-            <span>
-              {feedback.reason} <span className="text-cream-300">The clock is still running — try again.</span>
-            </span>
+            <div>
+              <p className="font-semibold text-stitch-100">
+                Incorrect answer. Try again!
+                {state.attempts > 1 && (
+                  <span className="ml-2 font-mono text-xs font-normal text-stitch-100/70">×{state.attempts}</span>
+                )}
+              </p>
+              <p className="mt-0.5 text-sm text-cream-300">{feedback.reason}</p>
+            </div>
+          </div>
+        )}
+
+        {state.error && !timeUp && (
+          <p className="flex items-start gap-2 rounded-xl bg-navy-900/80 px-4 py-3 text-[15px] text-cream-200 ring-1 ring-navy-700 animate-rise">
+            <TriangleAlert className="mt-0.5 size-4 shrink-0 text-cream-300" aria-hidden />
+            {state.error} Your guess wasn&apos;t counted — try again.
           </p>
         )}
-        {!feedback && timeUp && (
+
+        {timeUp && (
           <p className="flex items-center gap-2 text-[15px] text-cream-300">
             <CircleHelp className="size-4" aria-hidden /> Time&apos;s up…
           </p>

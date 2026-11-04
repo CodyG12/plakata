@@ -14,8 +14,6 @@ export interface PlayerIndex {
   findByName(name: string): BaseballPlayer[];
   /** Players whose last name (final token) normalizes to `lastName`. */
   findByLastName(lastName: string): BaseballPlayer[];
-  /** Ranked prefix search across names and aliases (for autocomplete). */
-  search(query: string, limit?: number): PlayerSummary[];
   summarize(player: BaseballPlayer): PlayerSummary;
   teamName(teamId: string): string;
   /** Deterministic "how well-known is this player" signal used only for ordering. */
@@ -29,8 +27,6 @@ export function createPlayerIndex(
   const byId = new Map<string, BaseballPlayer>();
   const byName = new Map<string, BaseballPlayer[]>();
   const byLastName = new Map<string, BaseballPlayer[]>();
-  /** Every searchable key: [normalized key, player]. */
-  const searchKeys: Array<[string, BaseballPlayer]> = [];
 
   const add = (map: Map<string, BaseballPlayer[]>, key: string, player: BaseballPlayer) => {
     const list = map.get(key);
@@ -43,14 +39,12 @@ export function createPlayerIndex(
     const key = normalizeName(player.name);
     add(byName, key, player);
     add(byLastName, key.split(" ").at(-1) ?? key, player);
-    searchKeys.push([key, player]);
   }
   for (const [alias, id] of aliases) {
     const player = byId.get(id);
     if (!player) throw new Error(`Alias "${alias}" points to unknown player ${id}`);
     const key = normalizeName(alias);
     add(byName, key, player);
-    searchKeys.push([key, player]);
   }
 
   const prominence = (p: BaseballPlayer) =>
@@ -86,26 +80,6 @@ export function createPlayerIndex(
     summarize,
     teamName,
     prominence,
-
-    search(query, limit = 8) {
-      const q = stripSuffix(normalizeName(query));
-      if (q.length < 2) return [];
-      // rank: 0 = exact, 1 = any word starts with the query ("griff" → Ken Griffey
-      // and Griffin Jax alike); ties are broken by prominence.
-      const best = new Map<string, { player: BaseballPlayer; rank: number }>();
-      for (const [key, player] of searchKeys) {
-        let rank: number;
-        if (key === q) rank = 0;
-        else if (key.startsWith(q) || key.includes(` ${q}`)) rank = 1;
-        else continue;
-        const current = best.get(player.id);
-        if (!current || rank < current.rank) best.set(player.id, { player, rank });
-      }
-      return [...best.values()]
-        .sort((a, b) => a.rank - b.rank || byProminence(a.player, b.player))
-        .slice(0, limit)
-        .map(({ player }) => summarize(player));
-    },
   };
 }
 

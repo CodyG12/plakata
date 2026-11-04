@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, CircleCheck, CircleX, Hourglass, Info } from "lucide-react";
+import { ArrowRight, CircleCheck, Hourglass, Info } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { Button } from "@/components/ui/Button";
 import { QUESTIONS, ROUND_COUNT } from "@/data/questions";
@@ -24,11 +24,12 @@ export function RoundResult({ round, roundIndex, totalScore, onNext }: RoundResu
     nextRef.current?.focus({ preventScroll: true });
   }, []);
 
+  // A round ends only with a valid answer or when time runs out.
   const status = timedOut
     ? { icon: Hourglass, title: "Time's up", chip: "bg-cream-200 text-ink-muted" }
-    : score.valid
-      ? { icon: CircleCheck, title: "Valid answer", chip: "bg-turf-100 text-turf-600" }
-      : { icon: CircleX, title: "Not a match", chip: "bg-stitch-100 text-stitch-600" };
+    : { icon: CircleCheck, title: "Valid answer", chip: "bg-turf-100 text-turf-600" };
+  const wrongGuesses =
+    round.attempts > 0 ? `${round.attempts} incorrect ${round.attempts === 1 ? "guess" : "guesses"}` : null;
   const StatusIcon = status.icon;
 
   return (
@@ -71,8 +72,9 @@ export function RoundResult({ round, roundIndex, totalScore, onNext }: RoundResu
         <div className="border-t border-dashed border-cream-300 bg-cream-50 px-6 py-5 sm:px-8">
           <p className="text-[15px] leading-relaxed text-ink">
             {timedOut
-              ? "The clock ran out before an answer was locked in, so this round scores zero."
+              ? `Time expired without a valid answer${wrongGuesses ? ` (${wrongGuesses})` : ""}, so this round scores zero.`
               : validation?.reason}
+            {!timedOut && wrongGuesses && <span className="text-ink-muted"> Found after {wrongGuesses}.</span>}
           </p>
           {score.valid && (
             <>

@@ -61,7 +61,7 @@ export function validateAnswer(
       status: "not-found",
       valid: false,
       reason: shown
-        ? `We couldn't find a player named "${shown}". Check the spelling or pick from the suggestions.`
+        ? `We couldn't find a player named "${shown}". Check the spelling.`
         : "Type a player's name to answer.",
     };
   }

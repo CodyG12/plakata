@@ -9,6 +9,8 @@ export const initialGameState: GameState = {
   rounds: [],
   pending: false,
   feedback: null,
+  attempts: 0,
+  error: null,
 };
 
 /**
@@ -17,7 +19,7 @@ export const initialGameState: GameState = {
  */
 export type GameAction =
   | { type: "START"; now: number }
-  | { type: "SUBMIT_STARTED"; roundIndex: number }
+  | { type: "SUBMIT_STARTED"; roundIndex: number; now: number }
   | { type: "SUBMIT_RESOLVED"; roundIndex: number; submittedText: string; response: AnswerResponse; now: number }
   | { type: "SUBMIT_FAILED"; roundIndex: number; message: string }
   | { type: "TIMER_EXPIRED"; roundIndex: number }
@@ -25,7 +27,7 @@ export type GameAction =
   | { type: "RESTART" }
   | { type: "HYDRATE"; state: GameState; now: number };
 
-/** Score for a round where time ran out before a locked-in answer. */
+/** Score for a round where time ran out before a valid answer. */
 export const TIMED_OUT_SCORE: ScoreResult = {
   valid: false,
   points: 0,
@@ -34,13 +36,23 @@ export const TIMED_OUT_SCORE: ScoreResult = {
   label: "Time expired",
 };
 
-/** Grace period for a submission that was sent before the deadline but answered after it. */
+/**
+ * Grace period for a correct answer that was submitted before the deadline but
+ * whose response arrived after it. Submissions made at or after the deadline
+ * are always rejected (see SUBMIT_STARTED).
+ */
 export const SUBMIT_GRACE_MS = 3000;
 
 export function totalScore(state: Pick<GameState, "rounds">): number {
   return state.rounds.reduce((sum, round) => sum + round.score.points, 0);
 }
 
+/**
+ * Round rules: the player may guess as many times as they like until the
+ * deadline. Only a valid answer ends the round early. Wrong players and unknown
+ * names are counted as incorrect attempts and the round stays open with the
+ * timer untouched. An ambiguous name asks the player to pick (not an attempt).
+ */
 export function gameReducer(state: GameState, action: GameAction): GameState {
   switch (action.type) {
     case "START":
@@ -51,47 +63,53 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
 
     case "SUBMIT_STARTED":
       if (!isActiveRound(state, action.roundIndex) || state.pending) return state;
-      return { ...state, pending: true, feedback: null };
+      if (state.deadline !== null && action.now >= state.deadline) return state; // too late
+      return { ...state, pending: true, feedback: null, error: null };
 
     case "SUBMIT_FAILED":
       if (!isActiveRound(state, action.roundIndex)) return state;
-      return {
-        ...state,
-        pending: false,
-        feedback: { status: "not-found", valid: false, reason: action.message },
-      };
+      return { ...state, pending: false, error: action.message };
 
     case "SUBMIT_RESOLVED": {
       if (!isActiveRound(state, action.roundIndex) || !state.pending) return state;
-      // The request was sent before the deadline (otherwise SUBMIT_STARTED would
-      // have been rejected), but don't accept arbitrarily late responses.
-      if (state.deadline !== null && action.now > state.deadline + SUBMIT_GRACE_MS) {
-        return expireRound({ ...state, pending: false });
-      }
+      const pastDeadline = state.deadline !== null && action.now >= state.deadline;
       const { validation, score } = action.response;
-      if (!score) {
-        // Not found or ambiguous: the round stays open so the user can retry —
-        // unless the clock ran out while we were waiting.
-        if (state.deadline !== null && action.now >= state.deadline) return expireRound({ ...state, pending: false });
+
+      if (validation.valid && score?.valid) {
+        // Sent before the deadline (SUBMIT_STARTED guarantees that); honor it
+        // unless the response is unreasonably late.
+        if (state.deadline !== null && action.now > state.deadline + SUBMIT_GRACE_MS) {
+          return expireRound({ ...state, pending: false });
+        }
+        return {
+          ...state,
+          status: "round-result",
+          deadline: null,
+          pending: false,
+          feedback: null,
+          error: null,
+          rounds: [
+            ...state.rounds,
+            {
+              questionId: QUESTIONS[state.roundIndex].id,
+              submittedText: validation.canonicalName ?? action.submittedText,
+              validation,
+              score,
+              timedOut: false,
+              attempts: state.attempts,
+            },
+          ],
+        };
+      }
+
+      // Anything other than a valid answer can never earn points once time is up.
+      if (pastDeadline) return expireRound({ ...state, pending: false });
+
+      if (validation.status === "ambiguous") {
         return { ...state, pending: false, feedback: validation };
       }
-      return {
-        ...state,
-        status: "round-result",
-        deadline: null,
-        pending: false,
-        feedback: null,
-        rounds: [
-          ...state.rounds,
-          {
-            questionId: QUESTIONS[state.roundIndex].id,
-            submittedText: validation.canonicalName ?? action.submittedText,
-            validation,
-            score,
-            timedOut: false,
-          },
-        ],
-      };
+      // Incorrect: wrong player or unknown name. Keep the round going.
+      return { ...state, pending: false, feedback: validation, attempts: state.attempts + 1 };
     }
 
     case "TIMER_EXPIRED":
@@ -124,6 +142,8 @@ function startRound(state: GameState, roundIndex: number, now: number): GameStat
     deadline: now + ROUND_SECONDS * 1000,
     pending: false,
     feedback: null,
+    attempts: 0,
+    error: null,
   };
 }
 
@@ -134,6 +154,7 @@ function expireRound(state: GameState): GameState {
     deadline: null,
     pending: false,
     feedback: null,
+    error: null,
     rounds: [
       ...state.rounds,
       {
@@ -142,6 +163,7 @@ function expireRound(state: GameState): GameState {
         validation: null,
         score: TIMED_OUT_SCORE,
         timedOut: true,
+        attempts: state.attempts,
       },
     ],
   };
@@ -153,7 +175,13 @@ function expireRound(state: GameState): GameState {
  */
 function hydrate(saved: GameState, now: number): GameState {
   if (!isPlausibleState(saved)) return initialGameState;
-  const restored: GameState = { ...saved, pending: false, feedback: null };
+  const restored: GameState = {
+    ...saved,
+    pending: false,
+    feedback: null,
+    error: null,
+    attempts: Number.isInteger(saved.attempts) ? saved.attempts : 0,
+  };
   if (restored.status === "playing" && restored.deadline !== null && now >= restored.deadline) {
     return expireRound(restored);
   }

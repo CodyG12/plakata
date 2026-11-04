@@ -20,7 +20,7 @@ const RULES = [
   {
     icon: Trophy,
     title: `${ROUND_COUNT * MAX_POINTS_PER_ROUND} points possible`,
-    body: "One locked-in answer per round. Wrong player or no answer scores zero.",
+    body: "Wrong guesses cost nothing but time — keep trying until the clock hits zero. A round with no valid answer scores zero.",
   },
 ];
 
@@ -31,7 +31,7 @@ export function LandingScreen({ onStart }: LandingScreenProps) {
         <BaseballMark />
         <p className="mt-6 text-xs font-semibold uppercase tracking-[0.28em] text-stitch-400">Baseball trivia</p>
         <h1 className="mt-3 font-display text-6xl font-semibold tracking-tight text-cream-50 sm:text-7xl">
-          Deep Cuts
+          Plákata
         </h1>
         <p className="mt-4 max-w-md text-lg leading-relaxed text-navy-300 text-balance">
           Everyone knows Babe Ruth. The points are in the players nobody else thinks of.

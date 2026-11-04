@@ -3,13 +3,20 @@ import { Fraunces, Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
-const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
-const fraunces = Fraunces({ variable: "--font-fraunces", subsets: ["latin"], axes: ["opsz"] });
+const geistMono = Geist_Mono({
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
+});
+const fraunces = Fraunces({
+  variable: "--font-fraunces",
+  subsets: ["latin"],
+  axes: ["opsz"],
+});
 
 export const metadata: Metadata = {
-  title: "Deep Cuts — Baseball trivia where obscure wins",
+  title: "Plákata — Baseball trivia where obscure wins",
   description:
-    "Name MLB players that fit each prompt. The rarer your answer, the more points you score. Seven rounds, thirty seconds each.",
+    "Plákata: name MLB players that fit each prompt. The rarer your answer, the more points you score. Seven rounds, thirty seconds each.",
 };
 
 export const viewport: Viewport = {

@@ -11,7 +11,8 @@ import { GameScreen } from "./GameScreen";
 import { LandingScreen } from "./LandingScreen";
 import { RoundResult } from "./RoundResult";
 
-const STORAGE_KEY = "deep-cuts:game:v1";
+// v2: saved state now includes per-round attempt counts.
+const STORAGE_KEY = "plakata:game:v2";
 
 function loadSavedGame(): GameState | null {
   try {
@@ -49,35 +50,58 @@ export function GameApp() {
 
   const submit = useCallback(
     async (payload: { input?: string; playerId?: string }, label: string) => {
-      if (state.status !== "playing" || state.pending || inFlight.current) return;
+      // inFlight blocks rapid repeat submits before React re-renders with pending=true.
+      if (state.status !== "playing" || state.pending || inFlight.current)
+        return;
+      const now = Date.now();
+      if (state.deadline !== null && now >= state.deadline) return;
       const roundIndex = state.roundIndex;
       inFlight.current = true;
-      dispatch({ type: "SUBMIT_STARTED", roundIndex });
+      dispatch({ type: "SUBMIT_STARTED", roundIndex, now });
       try {
         const res = await fetch("/api/answers", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ questionId: QUESTIONS[roundIndex].id, ...payload }),
+          body: JSON.stringify({
+            questionId: QUESTIONS[roundIndex].id,
+            ...payload,
+          }),
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const response: AnswerResponse = await res.json();
-        dispatch({ type: "SUBMIT_RESOLVED", roundIndex, submittedText: label, response, now: Date.now() });
+        dispatch({
+          type: "SUBMIT_RESOLVED",
+          roundIndex,
+          submittedText: label,
+          response,
+          now: Date.now(),
+        });
       } catch {
-        dispatch({ type: "SUBMIT_FAILED", roundIndex, message: "Couldn't check that answer — connection problem." });
+        dispatch({
+          type: "SUBMIT_FAILED",
+          roundIndex,
+          message: "Couldn't check that answer — connection problem.",
+        });
       } finally {
         inFlight.current = false;
       }
     },
-    [state.status, state.pending, state.roundIndex],
+    [state.status, state.pending, state.roundIndex, state.deadline],
   );
 
-  const onSubmitText = useCallback((text: string) => submit({ input: text }, text), [submit]);
+  const onSubmitText = useCallback(
+    (text: string) => submit({ input: text }, text),
+    [submit],
+  );
   const onSubmitPlayer = useCallback(
     (player: PlayerSummary) => submit({ playerId: player.id }, player.name),
     [submit],
   );
   const roundIndex = state.roundIndex;
-  const onExpire = useCallback(() => dispatch({ type: "TIMER_EXPIRED", roundIndex }), [roundIndex]);
+  const onExpire = useCallback(
+    () => dispatch({ type: "TIMER_EXPIRED", roundIndex }),
+    [roundIndex],
+  );
 
   const total = totalScore(state);
   const inGame = state.status === "playing" || state.status === "round-result";
@@ -87,7 +111,7 @@ export function GameApp() {
       <nav className="mb-10 flex h-10 items-center justify-between sm:mb-14">
         <span className="flex items-center gap-2 font-display text-lg font-semibold text-cream-50">
           <span className="size-2.5 rounded-full bg-stitch-500" aria-hidden />
-          Deep Cuts
+          Plákata
         </span>
         {inGame && (
           <button
@@ -101,8 +125,14 @@ export function GameApp() {
         )}
       </nav>
 
-      <main className={`flex flex-1 flex-col transition-opacity duration-200 ${hydrated ? "opacity-100" : "opacity-0"}`}>
-        {state.status === "landing" && <LandingScreen onStart={() => dispatch({ type: "START", now: Date.now() })} />}
+      <main
+        className={`flex flex-1 flex-col transition-opacity duration-200 ${hydrated ? "opacity-100" : "opacity-0"}`}
+      >
+        {state.status === "landing" && (
+          <LandingScreen
+            onStart={() => dispatch({ type: "START", now: Date.now() })}
+          />
+        )}
 
         {state.status === "playing" && (
           <GameScreen
@@ -126,7 +156,11 @@ export function GameApp() {
         )}
 
         {state.status === "game-complete" && (
-          <FinalResults rounds={state.rounds} totalScore={total} onPlayAgain={() => dispatch({ type: "START", now: Date.now() })} />
+          <FinalResults
+            rounds={state.rounds}
+            totalScore={total}
+            onPlayAgain={() => dispatch({ type: "START", now: Date.now() })}
+          />
         )}
       </main>
 

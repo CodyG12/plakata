@@ -5,11 +5,13 @@ export type GameStatus = "landing" | "playing" | "round-result" | "game-complete
 /** The locked-in outcome of one round. */
 export interface RoundRecord {
   questionId: string;
-  /** What the user typed or picked; null if the timer expired with no answer. */
+  /** The accepted player's name; null if the timer expired without a valid answer. */
   submittedText: string | null;
   validation: ValidationResult | null;
   score: ScoreResult;
   timedOut: boolean;
+  /** Incorrect guesses made in this round before it ended. */
+  attempts: number;
 }
 
 /** Server response for an answer submission. */
@@ -29,6 +31,10 @@ export interface GameState {
   rounds: RoundRecord[];
   /** True while an answer request is in flight (prevents double submits). */
   pending: boolean;
-  /** Non-final feedback for the current round (not found / ambiguous / network error). */
+  /** Feedback on the latest rejected or ambiguous guess in the current round. */
   feedback: ValidationResult | null;
+  /** Incorrect guesses so far in the current round (wrong player or unknown name). */
+  attempts: number;
+  /** Connection/server problem from the last submission, if any (not counted as a guess). */
+  error: string | null;
 }
