@@ -114,6 +114,8 @@ for (const person of readCsv("People.csv")) {
   players.push({
     id: person.playerID,
     name,
+    // Lahman's surname field, so multi-word surnames ("De La Rosa") match as a unit.
+    lastName: person.nameLast,
     firstYear: appearance.first,
     lastYear: appearance.last,
     games: appearance.games,

@@ -11,23 +11,21 @@ const DEADLINE = T0 + ROUND_SECONDS * 1000;
 const correct = (points: number): AnswerResponse => {
   const validation: ValidationResult = {
     status: "valid",
-    valid: true,
     playerId: "x",
     canonicalName: "Some Player",
-    reason: "",
+    matchType: "exact",
+    message: "",
   };
   const score: ScoreResult = { valid: true, points, rarityScore: points, method: "curated", label: "" };
   return { validation, score };
 };
 
-/** A real player who doesn't fit the question (the API includes a zero score). */
-const wrongPlayer: AnswerResponse = {
-  validation: { status: "invalid", valid: false, playerId: "y", canonicalName: "Wrong Guy", reason: "nope" },
-  score: { valid: false, points: 0, rarityScore: 0, method: "none", label: "No points" },
-};
-const unknownName: AnswerResponse = { validation: { status: "not-found", valid: false, reason: "who?" } };
-const ambiguous: AnswerResponse = {
-  validation: { status: "ambiguous", valid: false, reason: "which?", candidates: [{ id: "a", name: "A", detail: "" }] },
+/** Rejected answers carry only a status and a generic message. */
+const wrongPlayer: AnswerResponse = { validation: { status: "ineligible", message: "nope" } };
+const unknownName: AnswerResponse = { validation: { status: "unrecognized", message: "who?" } };
+const ambiguous: AnswerResponse = { validation: { status: "ambiguous", message: "which?" } };
+const suggestion: AnswerResponse = {
+  validation: { status: "suggestion", suggestion: "Derek Jeter", message: "Did you mean Derek Jeter?" },
 };
 
 const run = (state: GameState, ...actions: GameAction[]) => actions.reduce(gameReducer, state);
@@ -64,13 +62,13 @@ describe("gameReducer", () => {
     it("keeps the round open after a wrong player", () => {
       const s = guess(start(), wrongPlayer);
       expect(s).toMatchObject({ status: "playing", pending: false, attempts: 1, rounds: [], deadline: DEADLINE });
-      expect(s.feedback?.status).toBe("invalid");
+      expect(s.feedback?.status).toBe("ineligible");
     });
 
     it("keeps the round open after an unknown name", () => {
       const s = guess(start(), unknownName);
       expect(s).toMatchObject({ status: "playing", attempts: 1, rounds: [] });
-      expect(s.feedback?.status).toBe("not-found");
+      expect(s.feedback?.status).toBe("unrecognized");
     });
 
     it("allows many incorrect guesses, never touching the timer or score", () => {
@@ -90,10 +88,54 @@ describe("gameReducer", () => {
       expect(totalScore(s)).toBe(60);
     });
 
-    it("does not count an ambiguous name as an attempt", () => {
+    it("keeps the round open after an ambiguous name, counting it as an attempt", () => {
       const s = guess(start(), ambiguous);
-      expect(s).toMatchObject({ status: "playing", attempts: 0 });
+      expect(s).toMatchObject({ status: "playing", attempts: 1, deadline: DEADLINE, rounds: [] });
       expect(s.feedback?.status).toBe("ambiguous");
+    });
+
+    it("treats a spelling suggestion as neither a wrong guess nor an answer", () => {
+      const s = guess(guess(start(), wrongPlayer), suggestion);
+      expect(s).toMatchObject({ status: "playing", attempts: 1, deadline: DEADLINE, rounds: [] });
+      expect(s.feedback).toMatchObject({ status: "suggestion", suggestion: "Derek Jeter" });
+    });
+
+    it("keeps the round open while the user picks between namesakes", () => {
+      const choose: AnswerResponse = {
+        validation: {
+          status: "choose",
+          message: "Which one?",
+          options: [
+            { playerId: "a", name: "Luis Castillo", detail: "2017–2025" },
+            { playerId: "b", name: "Luis Castillo", detail: "1996–2011" },
+          ],
+        },
+      };
+      const before = guess(start(), wrongPlayer);
+      const s = guess(before, choose);
+      expect(s).toMatchObject({ status: "playing", attempts: 1, deadline: DEADLINE, rounds: [] });
+      expect(s.inputVersion).toBe(before.inputVersion); // typed text stays put
+      expect(s.feedback?.options).toHaveLength(2);
+      // Picking one sends another request; a valid answer then ends the round.
+      expect(guess(s, correct(75)).rounds[0]).toMatchObject({ timedOut: false });
+    });
+
+    it("refreshes the input after every rejected guess or suggestion", () => {
+      let s = start();
+      expect(s.inputVersion).toBe(0);
+      s = guess(s, wrongPlayer);
+      expect(s.inputVersion).toBe(1);
+      s = guess(s, suggestion);
+      expect(s.inputVersion).toBe(2);
+      s = guess(s, suggestion); // same suggestion again still re-fills the field
+      expect(s.inputVersion).toBe(3);
+    });
+
+    it("ends the round if a suggestion arrives after the deadline", () => {
+      const s = run(start(), { type: "SUBMIT_STARTED", roundIndex: 0, now: DEADLINE - 100 }, { type: "TIMER_EXPIRED", roundIndex: 0 });
+      const after = gameReducer(s, { type: "SUBMIT_RESOLVED", roundIndex: 0, submittedText: "p", response: suggestion, now: DEADLINE + 100 });
+      expect(after.status).toBe("round-result");
+      expect(totalScore(after)).toBe(0);
     });
 
     it("clears the previous error message when a new guess is submitted", () => {
@@ -202,7 +244,9 @@ describe("gameReducer", () => {
   it("starts each round with a fresh attempt count and no messages", () => {
     let s = guess(guess(start(), wrongPlayer), correct(40));
     s = gameReducer(s, { type: "NEXT_ROUND", now: T0 + 5000 });
-    expect(s).toMatchObject({ roundIndex: 1, attempts: 0, feedback: null, error: null, deadline: T0 + 5000 + ROUND_SECONDS * 1000 });
+    expect(s).toMatchObject({
+      roundIndex: 1, attempts: 0, inputVersion: 0, feedback: null, error: null, deadline: T0 + 5000 + ROUND_SECONDS * 1000,
+    });
   });
 
   it("cannot skip ahead to an unplayed round", () => {

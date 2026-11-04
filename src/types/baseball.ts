@@ -4,6 +4,8 @@ export interface BaseballPlayer {
   id: string;
   /** Display name as recorded by Lahman ("nameFirst nameLast"). */
   name: string;
+  /** Surname as recorded by Lahman (may be several words, e.g. "De La Rosa"). */
+  lastName: string;
   /** First and last seasons with a recorded appearance. */
   firstYear: number;
   lastYear: number;
@@ -44,25 +46,36 @@ export type QuestionCriteria =
   | { type: "playedFor"; teamIds: string[]; teamName: string }
   | { type: "hallOfFame" };
 
-/** Compact, display-ready player info (used for autocomplete & disambiguation). */
-export interface PlayerSummary {
-  id: string;
+export type ValidationStatus = "valid" | "ineligible" | "ambiguous" | "unrecognized" | "suggestion" | "choose";
+
+/** One of several same-named players offered for the user to choose between. */
+export interface PlayerOption {
+  playerId: string;
   name: string;
-  /** e.g. "1989–2010 · Mariners, Reds, White Sox" */
+  /** e.g. "1988–2009 · Seattle Mariners, Arizona Diamondbacks +4 more" */
   detail: string;
 }
 
-export type ValidationStatus = "valid" | "invalid" | "not-found" | "ambiguous";
+/** How the typed text was matched to a player. */
+export type MatchType = "exact" | "alias" | "partial" | "fuzzy";
 
+/**
+ * Result of checking an answer. Only a "valid" result carries player details.
+ * A "suggestion" carries only a corrected spelling ("Did you mean …?"),
+ * offered before eligibility is checked so it never hints at whether that
+ * player qualifies. Rejected guesses carry a generic message only.
+ */
 export interface ValidationResult {
   status: ValidationStatus;
-  valid: boolean;
   playerId?: string;
   canonicalName?: string;
-  /** Human-readable explanation, safe to show to the player. */
-  reason: string;
-  /** Present only when status === "ambiguous". */
-  candidates?: PlayerSummary[];
+  matchType?: MatchType;
+  /** For "suggestion": correctly spelled text to submit instead. */
+  suggestion?: string;
+  /** For "choose": the namesakes who all fit the question, for the user to pick from. */
+  options?: PlayerOption[];
+  /** Text safe to show the player. For "valid" it explains why the answer fits. */
+  message: string;
 }
 
 export type ScoreMethod = "curated" | "fallback" | "none";

@@ -31,10 +31,15 @@ export interface GameState {
   rounds: RoundRecord[];
   /** True while an answer request is in flight (prevents double submits). */
   pending: boolean;
-  /** Feedback on the latest rejected or ambiguous guess in the current round. */
+  /** Feedback on the latest guess in the current round (rejection, suggestion, or namesake choice). */
   feedback: ValidationResult | null;
-  /** Incorrect guesses so far in the current round (wrong player or unknown name). */
+  /** Rejected guesses so far in the current round (ineligible, ambiguous, or unrecognized). */
   attempts: number;
+  /**
+   * Bumped whenever the answer field should reset — after a rejected guess
+   * (cleared) or a spelling suggestion (pre-filled with the corrected name).
+   */
+  inputVersion: number;
   /** Connection/server problem from the last submission, if any (not counted as a guess). */
   error: string | null;
 }

@@ -10,6 +10,7 @@ export const initialGameState: GameState = {
   pending: false,
   feedback: null,
   attempts: 0,
+  inputVersion: 0,
   error: null,
 };
 
@@ -49,9 +50,11 @@ export function totalScore(state: Pick<GameState, "rounds">): number {
 
 /**
  * Round rules: the player may guess as many times as they like until the
- * deadline. Only a valid answer ends the round early. Wrong players and unknown
- * names are counted as incorrect attempts and the round stays open with the
- * timer untouched. An ambiguous name asks the player to pick (not an attempt).
+ * deadline. Only a valid answer ends the round early. Every rejected guess
+ * (ineligible player, ambiguous name, unrecognized name) is counted as an
+ * attempt and the round stays open with the timer untouched. A probable typo
+ * gets a "Did you mean …?" suggestion, and several qualifying namesakes get a
+ * "which one?" choice; neither is counted as an attempt.
  */
 export function gameReducer(state: GameState, action: GameAction): GameState {
   switch (action.type) {
@@ -75,7 +78,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       const pastDeadline = state.deadline !== null && action.now >= state.deadline;
       const { validation, score } = action.response;
 
-      if (validation.valid && score?.valid) {
+      if (validation.status === "valid" && score?.valid) {
         // Sent before the deadline (SUBMIT_STARTED guarantees that); honor it
         // unless the response is unreasonably late.
         if (state.deadline !== null && action.now > state.deadline + SUBMIT_GRACE_MS) {
@@ -105,11 +108,27 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       // Anything other than a valid answer can never earn points once time is up.
       if (pastDeadline) return expireRound({ ...state, pending: false });
 
-      if (validation.status === "ambiguous") {
+      // "Which one did you mean?": not a wrong guess. Keep the typed text and
+      // show the namesakes to pick from; the timer keeps running.
+      if (validation.status === "choose") {
         return { ...state, pending: false, feedback: validation };
       }
-      // Incorrect: wrong player or unknown name. Keep the round going.
-      return { ...state, pending: false, feedback: validation, attempts: state.attempts + 1 };
+
+      // "Did you mean …?": not a wrong guess. Pre-fill the corrected name for
+      // the player to confirm; the timer keeps running.
+      if (validation.status === "suggestion") {
+        return { ...state, pending: false, feedback: validation, inputVersion: state.inputVersion + 1 };
+      }
+
+      // Rejected (ineligible, ambiguous, or unrecognized): count the guess,
+      // keep the round going, leave the timer alone.
+      return {
+        ...state,
+        pending: false,
+        feedback: validation,
+        attempts: state.attempts + 1,
+        inputVersion: state.inputVersion + 1,
+      };
     }
 
     case "TIMER_EXPIRED":
@@ -143,6 +162,7 @@ function startRound(state: GameState, roundIndex: number, now: number): GameStat
     pending: false,
     feedback: null,
     attempts: 0,
+    inputVersion: 0,
     error: null,
   };
 }
@@ -181,6 +201,7 @@ function hydrate(saved: GameState, now: number): GameState {
     feedback: null,
     error: null,
     attempts: Number.isInteger(saved.attempts) ? saved.attempts : 0,
+    inputVersion: Number.isInteger(saved.inputVersion) ? saved.inputVersion : 0,
   };
   if (restored.status === "playing" && restored.deadline !== null && now >= restored.deadline) {
     return expireRound(restored);

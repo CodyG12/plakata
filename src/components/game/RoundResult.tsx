@@ -73,7 +73,7 @@ export function RoundResult({ round, roundIndex, totalScore, onNext }: RoundResu
           <p className="text-[15px] leading-relaxed text-ink">
             {timedOut
               ? `Time expired without a valid answer${wrongGuesses ? ` (${wrongGuesses})` : ""}, so this round scores zero.`
-              : validation?.reason}
+              : validation?.message}
             {!timedOut && wrongGuesses && <span className="text-ink-muted"> Found after {wrongGuesses}.</span>}
           </p>
           {score.valid && (

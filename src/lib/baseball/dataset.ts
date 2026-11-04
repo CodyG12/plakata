@@ -1,85 +1,136 @@
 import rawDataset from "@/data/players.json";
 import { PLAYER_ALIASES } from "@/data/aliases";
-import type { BaseballPlayer, PlayerSummary, PlayersDataset } from "@/types/baseball";
-import { normalizeName, stripSuffix } from "./normalize-name";
+import type { BaseballPlayer, PlayersDataset } from "@/types/baseball";
+import { normalizeName } from "./normalize-name";
+import { damerauLevenshtein } from "./string-distance";
+
+/** Where a lookup key came from. */
+export interface FuzzyMatch {
+  distance: number;
+  /** Every player whose key lies at the minimum distance found. */
+  playerIds: Set<string>;
+  /**
+   * For each of those players, the properly spelled text that was matched
+   * (canonical name, else alias, else surname/first name) — used to build a
+   * "Did you mean …?" suggestion that resolves back to the same player.
+   */
+  spelling: Map<string, string>;
+}
 
 /**
- * In-memory index over the Lahman-derived player dataset. Built once per
- * server process (the JSON is ~3.5 MB, so it is never sent to the browser).
+ * In-memory lookup tables over the Lahman-derived dataset. Built once per
+ * server process (the JSON is ~3.5 MB and is never sent to the browser).
+ *
+ * The index knows nothing about questions, popularity, or eligibility — name
+ * resolution must be decided by the name alone.
  */
 export interface PlayerIndex {
   meta: PlayersDataset["meta"];
   getById(id: string): BaseballPlayer | undefined;
-  /** Players whose primary name or an explicit alias normalizes to `name`. */
-  findByName(name: string): BaseballPlayer[];
-  /** Players whose last name (final token) normalizes to `lastName`. */
-  findByLastName(lastName: string): BaseballPlayer[];
-  summarize(player: BaseballPlayer): PlayerSummary;
+  /** Players whose canonical name normalizes to `key`. */
+  byCanonicalName(key: string): ReadonlySet<string>;
+  /** Players with a verified alias that normalizes to `key`. */
+  byAlias(key: string): ReadonlySet<string>;
+  /** Players whose surname — or first name — alone normalizes to `key`. */
+  byPartialName(key: string): ReadonlySet<string>;
+  /**
+   * Closest canonical names and aliases (and, if `includePartial`, surnames and
+   * first names) within `maxDistance` edits of `key`.
+   */
+  fuzzy(key: string, maxDistance: number, includePartial: boolean): FuzzyMatch | null;
   teamName(teamId: string): string;
-  /** Deterministic "how well-known is this player" signal used only for ordering. */
-  prominence(player: BaseballPlayer): number;
+  /** Properly spelled text for a normalized key (canonical name, alias, or partial name). */
+  displayOf(key: string): string | undefined;
 }
+
+const EMPTY: ReadonlySet<string> = new Set();
 
 export function createPlayerIndex(
   dataset: PlayersDataset,
   aliases: ReadonlyArray<readonly [string, string]> = [],
 ): PlayerIndex {
   const byId = new Map<string, BaseballPlayer>();
-  const byName = new Map<string, BaseballPlayer[]>();
-  const byLastName = new Map<string, BaseballPlayer[]>();
+  const canonical = new Map<string, Set<string>>();
+  const alias = new Map<string, Set<string>>();
+  const partial = new Map<string, Set<string>>();
 
-  const add = (map: Map<string, BaseballPlayer[]>, key: string, player: BaseballPlayer) => {
-    const list = map.get(key);
-    if (!list) map.set(key, [player]);
-    else if (!list.includes(player)) list.push(player);
+  /** Properly spelled display text for each normalized key. */
+  const display = new Map<string, string>();
+
+  const add = (map: Map<string, Set<string>>, text: string, id: string) => {
+    const key = normalizeName(text);
+    if (!key) return;
+    const set = map.get(key);
+    if (set) set.add(id);
+    else map.set(key, new Set([id]));
+    if (!display.has(key)) display.set(key, text.trim());
   };
 
   for (const player of dataset.players) {
     byId.set(player.id, player);
-    const key = normalizeName(player.name);
-    add(byName, key, player);
-    add(byLastName, key.split(" ").at(-1) ?? key, player);
+    add(canonical, player.name, player.id);
+    add(partial, player.lastName, player.id);
+    add(partial, player.name.slice(0, player.name.length - player.lastName.length), player.id);
   }
-  for (const [alias, id] of aliases) {
-    const player = byId.get(id);
-    if (!player) throw new Error(`Alias "${alias}" points to unknown player ${id}`);
-    const key = normalizeName(alias);
-    add(byName, key, player);
+  for (const [name, id] of aliases) {
+    if (!byId.has(id)) throw new Error(`Alias "${name}" points to unknown player ${id}`);
+    add(alias, name, id);
   }
 
-  const prominence = (p: BaseballPlayer) =>
-    p.games + (p.hof !== null ? 1500 : 0) + 400 * (p.mvp.length + p.cyYoung.length);
-
-  const byProminence = (a: BaseballPlayer, b: BaseballPlayer) =>
-    prominence(b) - prominence(a) || a.id.localeCompare(b.id);
-
-  const teamName = (teamId: string) => dataset.teams[teamId] ?? teamId;
-
-  const summarize = (player: BaseballPlayer): PlayerSummary => {
-    const years =
-      player.firstYear === player.lastYear ? `${player.firstYear}` : `${player.firstYear}–${player.lastYear}`;
-    const shown = player.teams.slice(0, 2).map(teamName);
-    const extra = player.teams.length - shown.length;
-    return {
-      id: player.id,
-      name: player.name,
-      detail: `${years} · ${shown.join(", ")}${extra > 0 ? ` +${extra} more` : ""}`,
-    };
+  // Fuzzy candidates bucketed by key length, so a lookup only scans keys whose
+  // length is within maxDistance of the input. Lower rank = preferred spelling.
+  type Entry = { key: string; ids: Set<string>; rank: number; text: string };
+  const buckets = new Map<number, Entry[]>();
+  const pushEntries = (map: Map<string, Set<string>>, rank: number) => {
+    for (const [key, ids] of map) {
+      const list = buckets.get(key.length);
+      const entry = { key, ids, rank, text: display.get(key) ?? key };
+      if (list) list.push(entry);
+      else buckets.set(key.length, [entry]);
+    }
   };
+  pushEntries(canonical, 0);
+  pushEntries(alias, 1);
+  pushEntries(partial, 2);
 
   return {
     meta: dataset.meta,
     getById: (id) => byId.get(id),
-    findByName(name) {
-      // Exact form first (so "Ken Griffey Jr." hits its alias), then without "Jr."/"Sr.".
-      const key = normalizeName(name);
-      const matches = byName.get(key) ?? byName.get(stripSuffix(key)) ?? [];
-      return [...matches].sort(byProminence);
+    byCanonicalName: (key) => canonical.get(key) ?? EMPTY,
+    byAlias: (key) => alias.get(key) ?? EMPTY,
+    byPartialName: (key) => partial.get(key) ?? EMPTY,
+    teamName: (teamId) => dataset.teams[teamId] ?? teamId,
+    displayOf: (key) => display.get(key),
+
+    fuzzy(key, maxDistance, includePartial) {
+      if (maxDistance <= 0) return null;
+      let best: FuzzyMatch | null = null;
+      const rankOf = new Map<string, number>();
+      const record = (match: FuzzyMatch, entry: Entry) => {
+        for (const id of entry.ids) {
+          match.playerIds.add(id);
+          if (entry.rank < (rankOf.get(id) ?? Infinity)) {
+            rankOf.set(id, entry.rank);
+            match.spelling.set(id, entry.text);
+          }
+        }
+      };
+      for (let len = key.length - maxDistance; len <= key.length + maxDistance; len++) {
+        for (const entry of buckets.get(len) ?? []) {
+          if (entry.rank === 2 && !includePartial) continue;
+          const limit = best ? best.distance : maxDistance;
+          const distance = damerauLevenshtein(key, entry.key, limit);
+          if (distance > limit) continue;
+          if (!best || distance < best.distance) {
+            best = { distance, playerIds: new Set(), spelling: new Map() };
+            rankOf.clear();
+          }
+          record(best, entry);
+        }
+      }
+      return best;
     },
-    findByLastName: (lastName) => [...(byLastName.get(normalizeName(lastName)) ?? [])].sort(byProminence),
-    summarize,
-    teamName,
-    prominence,
+
   };
 }
 

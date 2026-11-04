@@ -10,19 +10,26 @@ interface AnswerInputProps {
   /** True while a guess is being checked. */
   pending: boolean;
   onSubmit: (text: string) => void;
+  /** Pre-filled text, e.g. a "Did you mean …?" correction for the user to confirm. */
+  initialValue?: string;
 }
 
 /**
- * Plain text answer field — deliberately no suggestions, so the interface never
- * reveals possible answers. The parent remounts it (via `key`) after each
- * incorrect guess, which clears the text and refocuses it for the next try.
+ * Plain text answer field — deliberately no autocomplete while typing, so the
+ * interface never reveals possible answers. The parent remounts it (via `key`) after each
+ * rejected guess (cleared) or spelling suggestion (pre-filled), and it
+ * refocuses for the next try.
  */
-export function AnswerInput({ disabled, pending, onSubmit }: AnswerInputProps) {
-  const [value, setValue] = useState("");
+export function AnswerInput({ disabled, pending, onSubmit, initialValue = "" }: AnswerInputProps) {
+  const [value, setValue] = useState(initialValue);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    inputRef.current?.focus();
+    const input = inputRef.current;
+    if (!input) return;
+    input.focus();
+    // Cursor at the end, so Enter submits the correction or the user can keep typing.
+    input.setSelectionRange(input.value.length, input.value.length);
   }, []);
 
   const submit = () => {

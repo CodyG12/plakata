@@ -29,10 +29,16 @@ Deploys to Vercel as-is — no environment variables, database, or other service
 1. Press **Play Game**.
 2. Type a player's name from memory and press **Enter** or **Submit**. There are no suggestions, so the
    interface never hints at possible answers.
-3. **Guess as many times as you like.** A wrong player or an unrecognized name shows "Incorrect answer.
-   Try again!", clears the field, and the clock keeps running. Wrong guesses cost nothing but time.
-4. The first **valid** answer ends the round and scores its estimated rarity.
-5. If the name you typed belongs to several qualifying players, you'll be asked which one you meant.
+3. **Guess as many times as you like.** A rejected guess shows a short message, clears the field, and the
+   clock keeps running. Wrong guesses cost nothing but time.
+4. Minor typos get a correction: type "Derek Jeeter" and the field changes to "Derek Jeter" with **"Did you
+   mean Derek Jeter?"** Press Enter to submit it, or edit it. A suggestion isn't counted as a wrong guess,
+   and the clock keeps running. For father/son namesakes, the plain name means the father: "Ken Griffey"
+   prompts "Did you mean Ken Griffey Sr.?", and only "Ken Griffey Jr." reaches the son. A surname alone
+   that several players share ("Griffey", "Johnson") must be typed as a full name. A full name shared by
+   unrelated players ("Randy Johnson") counts if any of them fits the question; if several fit, you pick
+   which one you meant.
+5. The first **valid** answer ends the round and scores its estimated rarity.
 6. When time runs out without a valid answer, the round scores zero.
 
 An in-progress game survives a page refresh (saved in `localStorage`; the timer keeps counting).
@@ -50,16 +56,18 @@ src/
     rarity-estimates.ts   Curated, per-question popularity tiers (provisional)
     aliases.ts            Nicknames / Jr.-Sr. disambiguation → player IDs
   lib/baseball/           Pure, UI-independent game logic
-    normalize-name.ts     Case/accent/punctuation/initials normalization (not fuzzy)
-    dataset.ts            Player index: lookup by name, alias, surname
+    normalize-name.ts     Case/accent/punctuation/initials normalization
+    string-distance.ts    Damerau-Levenshtein distance with early cut-off
+    dataset.ts            Lookup tables: canonical names, aliases, surnames/first names, fuzzy buckets
+    resolve-player.ts     Typed text → exactly one player, or ambiguous/unrecognized (no question knowledge)
     criteria.ts           Does player X satisfy question criteria Y? (+ factual explanation)
-    validate-answer.ts    Input → canonical player → ValidationResult
+    validate-answer.ts    resolve-player → criteria → ValidationResult (generic messages when rejected)
     calculate-rarity.ts   ValidationResult → ScoreResult via a chain of RarityEstimators
   lib/game/
     reducer.ts            Game state machine (landing → playing → round-result → game-complete)
     use-countdown.ts      Deadline-based timer hook (one interval per round, always cleaned up)
   app/api/
-    answers               POST {questionId, input | playerId} → { validation, score? }
+    answers               POST {questionId, input} → { validation, score? }  (score only when valid)
   components/game/        Screens: Landing, Game, RoundResult, FinalResults + parts
 ```
 
@@ -72,9 +80,9 @@ doesn't match the current state. That makes stale timer ticks, double submits, l
 skipping ahead harmless. The timer stores an absolute deadline rather than a counter, so it can't drift or
 double-count, and it survives refreshes.
 
-**Round rules in the reducer.** Only a valid answer ends a round early. Incorrect guesses (a wrong player or
-an unknown name) increment an attempt counter and keep the round open. Ambiguous names prompt a choice and
-don't count as attempts. Network errors don't count either. A guess can't start at or after the deadline.
+**Round rules in the reducer.** Only a valid answer ends a round early. Rejected guesses (ineligible,
+ambiguous, or unrecognized) increment an attempt counter and keep the round open. Network errors don't
+count as attempts. A guess can't start at or after the deadline.
 A _correct_ guess sent before the deadline still counts if its response arrives within a 3-second grace
 period. Anything else that resolves after the deadline ends the round with zero points.
 
@@ -116,18 +124,87 @@ That includes the leagues SABR recognizes as major: NA (1871–75), AA, UA, PL, 
   with an explicit message. In this release every player has batting rows.
 - Data is current through the 2025 season and the 2026 Hall of Fame Era Committee election (Jeff Kent).
 
-**Name matching.** Matching ignores case, accents, punctuation and spacing in initials, so "Raúl Ibañez" =
-"Raul Ibanez" and "JJ Putz" = "J. J. Putz". "Jr."/"Sr." suffixes are optional. There is no fuzzy or
-edit-distance matching, so a typo is "not found" rather than silently mapped to a different player.
-Nicknames such as "Big Papi", "Goose Gossage" and "Ichiro" work only through the explicit list in
-`aliases.ts`.
+## Answer matching
 
-**Duplicate names.** 731 names belong to more than one player. When a typed name matches several players:
+Answers are checked on the server, only after the player submits. There is no autocomplete while typing. A
+probable typo comes back as a **suggestion**: the corrected spelling, which the player must confirm by
+submitting it. A rejected answer gets one of three generic messages and **no player names, IDs, or stats**:
 
-- **Exactly one qualifies:** it's credited, and the result says so. "Randy Johnson" for Cy Young means the
-  Big Unit, not the two 1980s namesakes.
-- **None qualify:** the answer is invalid.
-- **Several qualify:** the player is asked to choose (e.g., both Ken Griffeys for the Mariners).
+| Status | Message |
+| --- | --- |
+| `unrecognized` | "Player not recognized. Check the spelling and try again." |
+| `ambiguous` | "Multiple players match that name. Please enter the player's full name." |
+| `ineligible` | "Incorrect answer — that player doesn't fit this question. Try again!" |
+| `suggestion` | "Did you mean Derek Jeter?" (not a rejection; the input is pre-filled with the correction) |
+| `choose` | "More than one Luis Castillo fits this question. Which one did you mean?" plus a button for each, showing career years and teams (not a rejection) |
+
+Only a `valid` result carries the player's ID, canonical name and `matchType`. A suggestion is produced
+**before** eligibility is checked, so it's identical whether or not the player fits the question. It reveals
+only the spelling of a real player close to what was typed.
+
+**Two steps.** `resolve-player.ts` turns text into players using the name alone. It never sees the question
+and never uses popularity, statistics or rarity. Only
+after one player is identified does `validate-answer.ts` check them against the question.
+
+**Resolution pipeline.** The first step that finds anyone wins; a later step never overrides an earlier
+match.
+
+1. **Normalize:** lowercase, strip accents and punctuation, collapse whitespace, and merge initials
+   ("J. J. Putz" = "JJ Putz").
+2. **Exact:** canonical Lahman name or a verified alias from `aliases.ts`. Aliases include nicknames ("Big
+   Papi", "Ichiro") and Jr./Sr. forms for 15 father/son pairs whose Lahman names are identical.
+3. **Exact without suffix:** the same lookup with a trailing Jr./Sr./II/III/IV removed.
+4. **Partial:** the input equals a surname or a first name on its own ("Ohtani", "Buhner", "Kiner-Falefa").
+   Surnames come from Lahman's own surname field, so multi-word surnames match as a unit.
+5. **Fuzzy:** Damerau-Levenshtein distance (substitutions, missing/extra letters, adjacent transpositions)
+   against every canonical name, alias, surname and first name.
+
+At every step, one matching player resolves the answer, and none leave it **unrecognized**. When several
+players match, the outcome depends on what was typed:
+
+- **A surname or first name alone** ("Griffey", "Johnson", "Mike") is **ambiguous**, judged across all
+  24,011 players. "Griffey" is ambiguous even on the 300-HR question, where only Junior qualifies. A single
+  word never uses the question to decide.
+- **A full name shared by unrelated players** ("Randy Johnson", "Luis Castillo") is checked against the
+  question. If no namesake fits, the answer is ineligible; if exactly one fits, that player is accepted;
+  if several fit, the player chooses from buttons. Only a player from that list is accepted as the choice:
+  the server re-checks the pick against the same name and question.
+- **A father/son name** follows the default below.
+
+**Father/son default.** A father/son pair is two players sharing a full name, with verified "Jr." and
+"Sr." aliases in `aliases.ts`. For these pairs, a full name typed **without** a suffix, or a typo of one, is
+treated as the father. It comes back as a suggestion, "Did you mean Ken Griffey Sr.?", for the player to
+confirm. Only typing "Jr." reaches the son. The rule is driven purely by the name, never by who fits the
+question, and doesn't apply to surnames alone ("Griffey" stays ambiguous). It covers 15 pairs, including
+Griffey, Tatis, Guerrero, Rose, Gwynn, Alomar, Witt, Raines and Jose Cruz.
+
+**Fuzzy thresholds,** based on the normalized input length including spaces:
+
+| Input length | Max edits | Examples |
+| --- | --- | --- |
+| 1–4 | 0 (must be exact) | "Ruth", "Cobb", "Ott" |
+| 5–9 | 1 | "Jeeter" → Jeter, "Mel Ot" → Mel Ott |
+| 10+ | 2 | "Derek Jeeter", "Shohei Otani", "Albert Pujolz" |
+
+A typo produces a suggestion only if exactly one player sits at the minimum distance; if two players tie, the
+answer is ambiguous. A typo is never accepted automatically. The suggested text keeps the spelling that was
+matched, such as an alias like "Ken Griffey Jr.". A typo of a shared full name suggests that name ("Randy
+Jonson" → "Randy Johnson"), which is then handled as namesakes. Every suggestion is re-checked to make
+sure that submitting it resolves to the same players without any correction; otherwise no suggestion is
+offered.
+Because exact matches are checked first, typing a real name (Jim Price) is never "corrected" to a near
+neighbour (Jim Rice).
+
+**Dataset-driven limitations**
+
+- Lahman has no Jr./Sr. field. Fathers and sons are recognized only through the curated aliases. A
+  father/son pair missing from that list, such as Mark Leiter and his son, is handled like unrelated
+  namesakes.
+- Eddie Collins has a third, unrelated namesake (a 1910–18 Negro Leagues player). The plain name defaults to
+  the Hall of Fame father, so that third player can't currently be named.
+- A surname is accepted alone only if it is unique among all 24,011 players. Many famous surnames are not
+  unique ("Jeter", "Pujols", "Cobb", "Ruth" is unique).
+- Nicknames work only if listed in `aliases.ts`. Reversed names ("Jeter Derek") are not recognized.
 
 ## Rarity scoring (provisional)
 
@@ -152,11 +229,18 @@ Bayesian smoothing toward the curated prior.
 
 ## Tests
 
-`npm test` runs 60 unit tests covering:
+`npm test` runs 96 unit tests covering:
 
 - **Normalization:** case, accents, apostrophes, initials, suffixes.
-- **Validation against the real dataset:** valid and invalid answers for all seven questions, aliases,
-  accented names, not-found input, the three duplicate-name outcomes, and surname-only input.
+- **Name resolution against the real dataset:** exact names, aliases, accents, typo tolerance,
+  "Did you mean" suggestions (and that each one resolves back to the same player), the father/son Sr.
+  default, unique vs. shared surnames, identical full names returned as namesakes, exact-over-fuzzy
+  precedence (Jim Rice vs. Jim Price), and strict short-name matching.
+- **Isolated fixture:** typo ties, near-neighbour precedence, and database-wide ambiguity.
+- **Validation:** surnames never resolved by the question; namesakes accepted when one fits, rejected when
+  none fit, and offered as a choice when several fit (only listed choices accepted); rejected results expose
+  nothing but a status and a generic message.
+- **Damerau-Levenshtein** distance and its early cut-off.
 - **Scoring:** curated vs. fallback scores, determinism, the 0–100 bounds, and that every curated ID is valid.
 - **Game reducer:** the full seven-round loop and the total; unlimited incorrect guesses with the timer
   untouched; a valid answer ending the round; double-submit and duplicate-response prevention; timeout
@@ -175,9 +259,8 @@ mobile width.
    fine for a demo, but a leaderboard would need the server to issue signed round tokens.
 3. **A larger question bank.** Add new criteria types (teams by franchise, positions, seasons, stat
    thresholds, All-Star selections, World Series champions, birthplace) and pick seven at random or daily.
-4. **More aliases.** Generate nickname coverage from Baseball-Reference/Retrosheet name variants, and accept
-   misspellings only through a "did you mean …?" confirmation step.
-5. **Better disambiguation labels.** Store "Jr./Sr." relationships so namesakes display as "Ken Griffey Jr."
-6. **Post-round reveal.** Show the most common answers and the rarest valid answers, which also teaches
+4. **More aliases.** Generate nickname and Jr./Sr. coverage from Baseball-Reference or Retrosheet name
+   variants instead of a hand-written list.
+5. **Post-round reveal.** Show the most common answers and the rarest valid answers, which also teaches
    players what counts as a deep cut.
-7. **Component tests and an end-to-end Playwright run** covering timer expiry and keyboard flows.
+6. **Component tests and an end-to-end Playwright run** covering timer expiry and keyboard flows.

@@ -51,7 +51,7 @@ export function calculateScore(
   questionId: string,
   estimators: readonly RarityEstimator[] = DEFAULT_ESTIMATORS,
 ): ScoreResult {
-  if (!validation.valid || !validation.playerId) {
+  if (validation.status !== "valid" || !validation.playerId) {
     return { valid: false, points: 0, rarityScore: 0, method: "none", label: "No points" };
   }
   for (const estimator of estimators) {

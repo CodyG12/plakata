@@ -6,7 +6,7 @@ import { calculateScore, type RarityEstimator } from "./calculate-rarity";
 import { checkCriteria } from "./criteria";
 import { getPlayerIndex } from "./dataset";
 
-const valid = (playerId: string): ValidationResult => ({ status: "valid", valid: true, playerId, reason: "" });
+const valid = (playerId: string): ValidationResult => ({ status: "valid", playerId, message: "" });
 
 describe("calculateScore", () => {
   it("uses curated tiers when available", () => {
@@ -45,9 +45,9 @@ describe("calculateScore", () => {
   });
 
   it("awards zero for invalid or unresolved answers", () => {
-    const invalid: ValidationResult = { status: "invalid", valid: false, playerId: "ryanno01", reason: "" };
+    const invalid: ValidationResult = { status: "ineligible", message: "" };
     expect(calculateScore(invalid, "cy-young")).toMatchObject({ points: 0, rarityScore: 0, method: "none" });
-    const notFound: ValidationResult = { status: "not-found", valid: false, reason: "" };
+    const notFound: ValidationResult = { status: "unrecognized", message: "" };
     expect(calculateScore(notFound, "cy-young").points).toBe(0);
   });
 

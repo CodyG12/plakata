@@ -4,7 +4,6 @@ import { RotateCcw } from "lucide-react";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { QUESTIONS } from "@/data/questions";
 import { gameReducer, initialGameState, totalScore } from "@/lib/game/reducer";
-import type { PlayerSummary } from "@/types/baseball";
 import type { AnswerResponse, GameState } from "@/types/game";
 import { FinalResults } from "./FinalResults";
 import { GameScreen } from "./GameScreen";
@@ -36,6 +35,8 @@ export function GameApp() {
   const [state, dispatch] = useReducer(gameReducer, initialGameState);
   const [hydrated, setHydrated] = useState(false);
   const inFlight = useRef(false);
+  /** Text of the last submitted guess, re-sent when the user picks a namesake. */
+  const lastInput = useRef("");
 
   // Restore an in-progress game after mount (localStorage is browser-only).
   useEffect(() => {
@@ -49,7 +50,7 @@ export function GameApp() {
   }, [state, hydrated]);
 
   const submit = useCallback(
-    async (payload: { input?: string; playerId?: string }, label: string) => {
+    async (input: string, playerId?: string) => {
       // inFlight blocks rapid repeat submits before React re-renders with pending=true.
       if (state.status !== "playing" || state.pending || inFlight.current)
         return;
@@ -57,6 +58,7 @@ export function GameApp() {
       if (state.deadline !== null && now >= state.deadline) return;
       const roundIndex = state.roundIndex;
       inFlight.current = true;
+      lastInput.current = input;
       dispatch({ type: "SUBMIT_STARTED", roundIndex, now });
       try {
         const res = await fetch("/api/answers", {
@@ -64,7 +66,8 @@ export function GameApp() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             questionId: QUESTIONS[roundIndex].id,
-            ...payload,
+            input,
+            playerId,
           }),
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -72,7 +75,7 @@ export function GameApp() {
         dispatch({
           type: "SUBMIT_RESOLVED",
           roundIndex,
-          submittedText: label,
+          submittedText: input,
           response,
           now: Date.now(),
         });
@@ -89,14 +92,6 @@ export function GameApp() {
     [state.status, state.pending, state.roundIndex, state.deadline],
   );
 
-  const onSubmitText = useCallback(
-    (text: string) => submit({ input: text }, text),
-    [submit],
-  );
-  const onSubmitPlayer = useCallback(
-    (player: PlayerSummary) => submit({ playerId: player.id }, player.name),
-    [submit],
-  );
   const roundIndex = state.roundIndex;
   const onExpire = useCallback(
     () => dispatch({ type: "TIMER_EXPIRED", roundIndex }),
@@ -140,8 +135,8 @@ export function GameApp() {
             state={state}
             totalScore={total}
             onExpire={onExpire}
-            onSubmitText={onSubmitText}
-            onSubmitPlayer={onSubmitPlayer}
+            onSubmit={submit}
+            onChoose={(playerId: string) => submit(lastInput.current, playerId)}
           />
         )}
 

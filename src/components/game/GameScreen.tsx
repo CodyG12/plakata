@@ -1,9 +1,9 @@
 "use client";
 
-import { CircleHelp, CircleX, TriangleAlert, Users } from "lucide-react";
+import { CircleHelp, CircleX, CornerDownLeft, SearchX, SpellCheck, TriangleAlert, Users } from "lucide-react";
 import { QUESTIONS } from "@/data/questions";
 import { useCountdown } from "@/lib/game/use-countdown";
-import type { PlayerSummary } from "@/types/baseball";
+import type { ValidationStatus } from "@/types/baseball";
 import type { GameState } from "@/types/game";
 import { AnswerInput } from "./AnswerInput";
 import { CountdownTimer } from "./CountdownTimer";
@@ -13,16 +13,25 @@ interface GameScreenProps {
   state: GameState;
   totalScore: number;
   onExpire: () => void;
-  onSubmitText: (text: string) => void;
-  onSubmitPlayer: (player: PlayerSummary) => void;
+  onSubmit: (text: string) => void;
+  /** Pick one of several namesakes who all fit the question. */
+  onChoose: (playerId: string) => void;
 }
 
-export function GameScreen({ state, totalScore, onExpire, onSubmitText, onSubmitPlayer }: GameScreenProps) {
+const FEEDBACK_ICONS: Partial<Record<ValidationStatus, typeof CircleX>> = {
+  ineligible: CircleX,
+  ambiguous: Users,
+  unrecognized: SearchX,
+};
+
+export function GameScreen({ state, totalScore, onExpire, onSubmit, onChoose }: GameScreenProps) {
   const remainingMs = useCountdown(state.deadline, onExpire);
   const question = QUESTIONS[state.roundIndex];
   const timeUp = remainingMs <= 0;
   const feedback = state.feedback;
-  const incorrect = feedback !== null && feedback.status !== "ambiguous";
+  const FeedbackIcon = feedback ? (FEEDBACK_ICONS[feedback.status] ?? CircleX) : CircleX;
+  const suggestion = feedback?.status === "suggestion" ? feedback.suggestion : undefined;
+  const options = feedback?.status === "choose" ? feedback.options : undefined;
 
   return (
     <section className="flex flex-col gap-8" aria-labelledby="question">
@@ -53,49 +62,68 @@ export function GameScreen({ state, totalScore, onExpire, onSubmitText, onSubmit
         </p>
       </div>
 
-      {/* Remounting on each incorrect attempt clears and refocuses the field. */}
-      <AnswerInput key={state.attempts} disabled={timeUp} pending={state.pending} onSubmit={onSubmitText} />
+      {/* Remounting on each rejected attempt clears and refocuses the field. */}
+      <AnswerInput
+        key={state.inputVersion}
+        disabled={timeUp}
+        pending={state.pending}
+        onSubmit={onSubmit}
+        initialValue={suggestion ?? ""}
+      />
 
       <div aria-live="polite" className="min-h-6">
-        {feedback?.status === "ambiguous" && feedback.candidates && (
-          <div className="rounded-2xl bg-navy-900/80 p-4 ring-1 ring-navy-700 animate-rise sm:p-5">
+        {/* Generic, name-free feedback: never lists or hints at players. */}
+        {suggestion && !timeUp && (
+          <div
+            key={`suggestion-${state.inputVersion}`}
+            className="flex items-start gap-2 rounded-xl bg-navy-900/80 px-4 py-3 text-[15px] ring-1 ring-navy-600 animate-rise"
+          >
+            <SpellCheck className="mt-0.5 size-4 shrink-0 text-cream-300" aria-hidden />
+            <p className="text-cream-100">
+              Did you mean <strong className="font-semibold text-cream-50">{suggestion}</strong>?{" "}
+              <span className="inline-flex items-center gap-1 text-sm text-navy-300">
+                Press <CornerDownLeft className="size-3.5" aria-label="Enter" /> to submit it, or edit your answer.
+              </span>
+            </p>
+          </div>
+        )}
+
+        {options && !timeUp && (
+          <div className="rounded-2xl bg-navy-900/80 p-4 ring-1 ring-navy-600 animate-rise sm:p-5">
             <p className="flex items-start gap-2 text-[15px] text-cream-100">
               <Users className="mt-0.5 size-4 shrink-0 text-cream-300" aria-hidden />
-              {feedback.reason}
+              {feedback?.message}
             </p>
             <div className="mt-4 grid gap-2 sm:grid-cols-2">
-              {feedback.candidates.map((candidate) => (
+              {options.map((option) => (
                 <button
-                  key={candidate.id}
+                  key={option.playerId}
                   type="button"
-                  disabled={state.pending || timeUp}
-                  onClick={() => onSubmitPlayer(candidate)}
+                  disabled={state.pending}
+                  onClick={() => onChoose(option.playerId)}
                   className="rounded-xl bg-navy-800 px-4 py-3 text-left ring-1 ring-navy-700 transition hover:bg-navy-700 hover:ring-cream-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cream-100 disabled:opacity-50"
                 >
-                  <span className="block font-semibold text-cream-50">{candidate.name}</span>
-                  <span className="block text-xs text-navy-300">{candidate.detail}</span>
+                  <span className="block font-semibold text-cream-50">{option.name}</span>
+                  <span className="block text-xs text-navy-300">{option.detail}</span>
                 </button>
               ))}
             </div>
           </div>
         )}
 
-        {incorrect && !timeUp && (
-          // key = attempt number, so the message re-animates on every wrong guess.
+        {feedback && !suggestion && !options && !timeUp && (
+          // key = attempt number, so the message re-animates on every rejected guess.
           <div
             key={state.attempts}
             className="flex items-start gap-2 rounded-xl bg-stitch-600/15 px-4 py-3 text-[15px] ring-1 ring-stitch-500/40 animate-rise"
           >
-            <CircleX className="mt-0.5 size-4 shrink-0 text-stitch-400" aria-hidden />
-            <div>
-              <p className="font-semibold text-stitch-100">
-                Incorrect answer. Try again!
-                {state.attempts > 1 && (
-                  <span className="ml-2 font-mono text-xs font-normal text-stitch-100/70">×{state.attempts}</span>
-                )}
-              </p>
-              <p className="mt-0.5 text-sm text-cream-300">{feedback.reason}</p>
-            </div>
+            <FeedbackIcon className="mt-0.5 size-4 shrink-0 text-stitch-400" aria-hidden />
+            <p className="font-medium text-stitch-100">
+              {feedback.message}
+              {state.attempts > 1 && (
+                <span className="ml-2 font-mono text-xs font-normal text-stitch-100/70">×{state.attempts}</span>
+              )}
+            </p>
           </div>
         )}
 

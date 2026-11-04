@@ -2,10 +2,11 @@ import { describe, expect, it } from "vitest";
 import { PLAYER_ALIASES } from "@/data/aliases";
 import { QUESTIONS, getQuestion } from "@/data/questions";
 import { getPlayerIndex } from "./dataset";
-import { validateAnswer } from "./validate-answer";
+import { MESSAGES, validateAnswer } from "./validate-answer";
 
 const index = getPlayerIndex();
 const criteria = (id: string) => getQuestion(id)!.criteria;
+const validate = (input: string, questionId: string) => validateAnswer(input, criteria(questionId), index);
 
 describe("validateAnswer — real Lahman data", () => {
   it("accepts valid answers for each question", () => {
@@ -13,116 +14,119 @@ describe("validateAnswer — real Lahman data", () => {
       ["hr-300", "Jay Buhner", "buhneja01"],
       ["mvp", "Shohei Ohtani", "ohtansh01"],
       ["yankees", "Derek Jeter", "jeterde01"],
-      ["hits-2000", "Pete Rose", "rosepe01"],
-      ["cy-young", "Randy Johnson", "johnsra05"],
+      ["hits-2000", "Paul Molitor", "molitpa01"],
+      ["cy-young", "Greg Maddux", "maddugr01"],
       ["mariners", "Edgar Martinez", "martied01"],
       ["hall-of-fame", "Ichiro Suzuki", "suzukic01"],
     ];
     for (const [questionId, input, expectedId] of cases) {
-      const result = validateAnswer({ input }, criteria(questionId), index);
-      expect(result, `${questionId}: ${input}`).toMatchObject({ status: "valid", valid: true, playerId: expectedId });
+      expect(validate(input, questionId), `${questionId}: ${input}`).toMatchObject({
+        status: "valid",
+        playerId: expectedId,
+      });
     }
   });
 
-  it("rejects real players who do not meet the criteria, with a factual reason", () => {
-    const nolan = validateAnswer({ input: "Nolan Ryan" }, criteria("cy-young"), index);
-    expect(nolan).toMatchObject({ status: "invalid", valid: false, playerId: "ryanno01" });
-    expect(nolan.reason).toMatch(/never won the Cy Young/);
-
-    const jeter = validateAnswer({ input: "Derek Jeter" }, criteria("mvp"), index);
-    expect(jeter.status).toBe("invalid");
-
-    const trout = validateAnswer({ input: "Mike Trout" }, criteria("mariners"), index);
-    expect(trout.status).toBe("invalid");
-
-    const rose = validateAnswer({ input: "Pete Rose" }, criteria("hall-of-fame"), index);
-    expect(rose.status).toBe("invalid");
-
-    const ortiz = validateAnswer({ input: "David Ortiz" }, criteria("mariners"), index);
-    expect(ortiz.status).toBe("invalid"); // in Seattle's minor-league system only
+  it("explains a valid answer with dataset facts", () => {
+    expect(validate("Jay Buhner", "hr-300").message).toBe("Jay Buhner hit 310 career home runs.");
   });
 
-  it("explains how far short a stat threshold is", () => {
-    const result = validateAnswer({ input: "Mark McGwire" }, criteria("hits-2000"), index);
-    expect(result.status).toBe("invalid");
-    expect(result.reason).toMatch(/short of 2,000/);
-  });
-
-  it("reports unknown names as not-found (round stays open)", () => {
-    const result = validateAnswer({ input: "Roy Hobbs" }, criteria("hr-300"), index);
-    expect(result).toMatchObject({ status: "not-found", valid: false });
-  });
-
-  it("is case-insensitive and accent-insensitive", () => {
-    expect(validateAnswer({ input: "jay BUHNER" }, criteria("hr-300"), index).playerId).toBe("buhneja01");
-    // Lahman stores "Raul Ibanez" without accents; the accented form must still match.
-    expect(validateAnswer({ input: "Raúl Ibañez" }, criteria("hr-300"), index)).toMatchObject({
-      status: "valid",
-      playerId: "ibanera01",
+  it("answers a typo with a suggestion instead of accepting it", () => {
+    expect(validate("Derek Jeeter", "yankees")).toEqual({
+      status: "suggestion",
+      suggestion: "Derek Jeter",
+      message: "Did you mean Derek Jeter?",
     });
-    // Lahman stores "Ronald Acuña" with the accent; plain ASCII must still match.
-    expect(validateAnswer({ input: "Ronald Acuna" }, criteria("mvp"), index).playerId).toBe("acunaro01");
+    // Submitting the suggestion then validates normally.
+    expect(validate("Derek Jeter", "yankees")).toMatchObject({ status: "valid", playerId: "jeterde01" });
   });
 
-  it("resolves explicit aliases", () => {
-    expect(validateAnswer({ input: "Big Papi" }, criteria("hr-300"), index).playerId).toBe("ortizda01");
-    expect(validateAnswer({ input: "A-Rod" }, criteria("mariners"), index).playerId).toBe("rodrial01");
-    expect(validateAnswer({ input: "Goose Gossage" }, criteria("hall-of-fame"), index).playerId).toBe("gossari01");
-    expect(validateAnswer({ input: "Ichiro" }, criteria("mariners"), index).playerId).toBe("suzukic01");
-    expect(validateAnswer({ input: "JJ Putz" }, criteria("mariners"), index).playerId).toBe("putzjj01");
+  it("offers the same suggestion whether or not the player qualifies", () => {
+    // Identical response for a question Jeter fits (Yankees) and one he doesn't (MVP).
+    expect(validate("Derek Jeeter", "mvp")).toEqual(validate("Derek Jeeter", "yankees"));
   });
 
-  it("distinguishes players with identical names via suffix aliases", () => {
-    expect(validateAnswer({ input: "Ken Griffey Jr." }, criteria("hr-300"), index)).toMatchObject({
-      status: "valid",
-      playerId: "griffke02",
+  it("accepts aliases and accents, then checks eligibility", () => {
+    expect(validate("Big Papi", "hr-300")).toMatchObject({ status: "valid", matchType: "alias" });
+    expect(validate("Raúl Ibañez", "hr-300")).toMatchObject({ status: "valid", playerId: "ibanera01" });
+  });
+
+  it("marks real players who don't fit as ineligible", () => {
+    expect(validate("Nolan Ryan", "cy-young").status).toBe("ineligible");
+    expect(validate("Derek Jeter", "mvp").status).toBe("ineligible");
+    expect(validate("Mike Trout", "mariners").status).toBe("ineligible");
+  });
+
+  it("never lets the question resolve a surname alone", () => {
+    // Only Ken Griffey Jr. has 300 HR, but "Griffey" names two players: still ambiguous.
+    expect(validate("Griffey", "hr-300").status).toBe("ambiguous");
+    expect(validate("Johnson", "cy-young").status).toBe("ambiguous");
+  });
+
+  describe("unrelated namesakes (same full name)", () => {
+    it("accepts the name when exactly one namesake fits the question", () => {
+      // Three MLB players are named Randy Johnson; only one won a Cy Young or reached the Hall.
+      expect(validate("Randy Johnson", "cy-young")).toMatchObject({ status: "valid", playerId: "johnsra05" });
+      expect(validate("Randy Johnson", "hall-of-fame")).toMatchObject({ status: "valid", playerId: "johnsra05" });
     });
-    expect(validateAnswer({ input: "Ken Griffey Sr" }, criteria("hr-300"), index)).toMatchObject({
-      status: "invalid",
-      playerId: "griffke01",
+
+    it("rejects the name when no namesake fits", () => {
+      expect(validate("Randy Johnson", "mvp")).toEqual({ status: "ineligible", message: MESSAGES.ineligible });
+    });
+
+    it("asks the user to choose when several namesakes fit", () => {
+      // Two different Luis Castillos played for the Mariners.
+      const result = validate("Luis Castillo", "mariners");
+      expect(result.status).toBe("choose");
+      expect(result.options?.map((o) => o.playerId).sort()).toEqual(["castilu02", "castilu03"]);
+      expect(result.options?.every((o) => o.name === "Luis Castillo" && /\d{4}/.test(o.detail))).toBe(true);
+      expect(result.playerId).toBeUndefined();
+    });
+
+    it("accepts the user's choice, and only a choice from the offered list", () => {
+      const pick = validateAnswer("Luis Castillo", criteria("mariners"), index, "castilu03");
+      expect(pick).toMatchObject({ status: "valid", playerId: "castilu03" });
+      // A namesake who doesn't fit (castilu01) or an unrelated ID can't be forced through.
+      expect(validateAnswer("Luis Castillo", criteria("mariners"), index, "castilu01").status).toBe("choose");
+      expect(validateAnswer("Luis Castillo", criteria("mariners"), index, "jeterde01").status).toBe("choose");
+      expect(validateAnswer("Derek Jeter", criteria("mvp"), index, "ohtansh01").status).toBe("ineligible");
     });
   });
 
-  it("credits a shared name when exactly one namesake qualifies, and says so", () => {
-    // Three MLB players are named Randy Johnson; only one won a Cy Young.
-    const result = validateAnswer({ input: "Randy Johnson" }, criteria("cy-young"), index);
-    expect(result).toMatchObject({ status: "valid", playerId: "johnsra05" });
-    expect(result.reason).toMatch(/3 players match/);
+  it("checks eligibility only after the name is settled", () => {
+    // A plain father/son name suggests Sr. before eligibility is checked, identically for any question.
+    expect(validate("Ken Griffey", "hr-300")).toMatchObject({ status: "suggestion", suggestion: "Ken Griffey Sr." });
+    expect(validate("Ken Griffey", "hr-300")).toEqual(validate("Ken Griffey", "mariners"));
+    // Once specific, eligibility applies normally.
+    expect(validate("Ken Griffey Jr.", "hr-300").status).toBe("valid");
+    expect(validate("Ken Griffey Sr.", "hr-300").status).toBe("ineligible");
   });
 
-  it("rejects a shared name when no namesake qualifies", () => {
-    // Pete Rose and his son Pete Rose Jr. — neither is in the Hall of Fame.
-    const result = validateAnswer({ input: "Pete Rose" }, criteria("hall-of-fame"), index);
-    expect(result).toMatchObject({ status: "invalid", valid: false });
-    expect(result.playerId).toBeUndefined();
+  it("reports unknown names as unrecognized", () => {
+    expect(validate("Roy Hobbs", "hr-300")).toEqual({ status: "unrecognized", message: MESSAGES.unrecognized });
   });
 
-  it("asks the user to choose when several namesakes qualify instead of guessing", () => {
-    const result = validateAnswer({ input: "Ken Griffey" }, criteria("mariners"), index);
-    expect(result.status).toBe("ambiguous");
-    expect(result.valid).toBe(false);
-    expect(result.candidates?.map((c) => c.id).sort()).toEqual(["griffke01", "griffke02"]);
+  it("never reveals player details for rejected answers", () => {
+    const rejected = [
+      validate("Griffey", "hr-300"), // ambiguous
+      validate("Randy Johnson", "mvp"), // ineligible namesakes
+      validate("Nolan Ryan", "cy-young"), // ineligible
+      validate("Xyzabc", "mvp"), // unrecognized
+    ];
+    for (const result of rejected) {
+      expect(Object.keys(result).sort()).toEqual(["message", "status"]);
+      expect(result.message).not.toMatch(/Griffey|Johnson|Ryan|Jeter|Ken|Randy/);
+    }
   });
 
-  it("accepts an exact playerId from a disambiguation choice", () => {
-    const result = validateAnswer({ playerId: "griffke01" }, criteria("mariners"), index);
-    expect(result).toMatchObject({ status: "valid", playerId: "griffke01" });
-  });
-
-  it("accepts a unique surname but asks when several players with a surname qualify", () => {
-    expect(validateAnswer({ input: "Ohtani" }, criteria("mvp"), index).playerId).toBe("ohtansh01");
-    const smith = validateAnswer({ input: "Smith" }, criteria("yankees"), index);
-    expect(smith.status).toBe("ambiguous");
-    expect(smith.candidates!.length).toBeLessThanOrEqual(8);
-  });
-
-  it("never treats an unknown playerId as a match", () => {
-    expect(validateAnswer({ playerId: "nobody99" }, criteria("mvp"), index).status).toBe("not-found");
+  it("uses only generic messages", () => {
+    expect(validate("Griffey", "mariners").message).toBe(MESSAGES.ambiguous);
+    expect(validate("Nolan Ryan", "cy-young").message).toBe(MESSAGES.ineligible);
   });
 
   it("covers every configured question", () => {
     for (const question of QUESTIONS) {
-      expect(() => validateAnswer({ input: "Babe Ruth" }, question.criteria, index)).not.toThrow();
+      expect(() => validateAnswer("Babe Ruth", question.criteria, index)).not.toThrow();
     }
   });
 });
@@ -135,8 +139,7 @@ describe("dataset integrity", () => {
   });
 
   it("does not coerce missing stats to zero", () => {
-    // Spot-check that known totals come straight from Lahman.
-    expect(index.getById("ruthba01")).toMatchObject({ hr: 714, hits: 2873, hof: 1936 });
+    expect(index.getById("ruthba01")).toMatchObject({ hr: 714, hits: 2873, hof: 1936, lastName: "Ruth" });
     expect(index.getById("aaronha01")).toMatchObject({ hr: 755, hits: 3771 });
   });
 });
