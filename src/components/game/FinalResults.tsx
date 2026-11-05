@@ -72,7 +72,8 @@ export function FinalResults({ rounds, totalScore, mode, dailyDay, onPlayAgain }
       <div className="overflow-hidden rounded-3xl bg-cream-100 text-ink shadow-2xl shadow-black/30">
         <div className="flex items-center justify-between border-b border-cream-300 px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-muted sm:px-6">
           <span>Box score</span>
-          <span className="flex gap-4 sm:gap-6">
+          {/* Column labels only line up with the side-by-side layout (sm and up). */}
+          <span className="hidden gap-6 sm:flex">
             <span>Result</span>
             <span className="w-12 text-right">Pts</span>
           </span>
@@ -82,23 +83,34 @@ export function FinalResults({ rounds, totalScore, mode, dailyDay, onPlayAgain }
             const Icon = round.timedOut ? Hourglass : round.score.valid ? CircleCheck : CircleX;
             const tone = round.timedOut ? "text-ink-muted" : round.score.valid ? "text-turf-600" : "text-stitch-600";
             return (
-              <li key={round.position} className="flex items-center gap-3 px-5 py-3.5 sm:gap-4 sm:px-6">
-                <span className="w-5 shrink-0 font-mono text-sm text-ink-muted">{round.position + 1}</span>
-                <Icon className={`size-4 shrink-0 ${tone}`} aria-label={round.score.valid ? "valid" : "no points"} />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-semibold">
-                    {round.timedOut ? <span className="text-ink-muted">No answer</span> : round.acceptedName}
-                  </p>
-                  <p className="truncate text-xs text-ink-muted">{round.prompt.replace(/^Name (an MLB player|a player|a pitcher) /, "")}</p>
+              <li key={round.position} className="flex items-start gap-3 px-5 py-3.5 sm:items-center sm:gap-4 sm:px-6">
+                <span className="mt-0.5 w-5 shrink-0 font-mono text-sm text-ink-muted sm:mt-0">{round.position + 1}</span>
+                <Icon
+                  className={`mt-1 size-4 shrink-0 sm:mt-0 ${tone}`}
+                  aria-label={round.score.valid ? "valid" : "no points"}
+                />
+                {/* Phones: name and prompt get the full width, tier and points sit on a
+                    second line. sm and up: everything on one line, as before. */}
+                <div className="min-w-0 flex-1 sm:flex sm:items-center sm:gap-4">
+                  <div className="min-w-0 sm:flex-1">
+                    <p className="truncate font-semibold">
+                      {round.timedOut ? <span className="text-ink-muted">No answer</span> : round.acceptedName}
+                    </p>
+                    <p className="truncate text-xs text-ink-muted">
+                      {round.prompt.replace(/^Name (an MLB player|a player|a pitcher) /, "")}
+                    </p>
+                  </div>
+                  <div className="mt-2 flex items-center justify-between gap-4 sm:mt-0 sm:justify-end">
+                    <TierBadge tier={round.score.tier} className="shrink-0" />
+                    <span
+                      className={`w-12 shrink-0 text-right font-mono text-lg font-semibold tabular-nums ${
+                        round.score.points > 0 ? "text-stitch-600" : "text-ink-muted"
+                      }`}
+                    >
+                      +{round.score.points}
+                    </span>
+                  </div>
                 </div>
-                <TierBadge tier={round.score.tier} className="shrink-0" />
-                <span
-                  className={`w-12 shrink-0 text-right font-mono text-lg font-semibold tabular-nums ${
-                    round.score.points > 0 ? "text-stitch-600" : "text-ink-muted"
-                  }`}
-                >
-                  +{round.score.points}
-                </span>
               </li>
             );
           })}
