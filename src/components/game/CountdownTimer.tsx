@@ -1,5 +1,5 @@
 import { Timer } from "lucide-react";
-import { ROUND_SECONDS } from "@/data/questions";
+import { ROUND_SECONDS } from "@/lib/game/config";
 
 interface CountdownTimerProps {
   remainingMs: number;

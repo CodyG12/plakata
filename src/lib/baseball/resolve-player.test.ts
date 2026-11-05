@@ -167,12 +167,14 @@ describe("maxTypoDistance", () => {
 
 describe("resolvePlayerName — isolated fixture", () => {
   const player = (id: string, first: string, last: string): BaseballPlayer => ({
-    id, name: `${first} ${last}`, lastName: last, firstYear: 2000, lastYear: 2005, games: 100,
-    teams: ["AAA"], hr: 0, hits: 0, mvp: [], cyYoung: [], hof: null,
+    id, name: `${first} ${last}`, lastName: last, firstYear: 2000, lastYear: 2005, seasons: [[2000, 2005]], games: 100,
+    teams: ["AAA"], franchises: ["AAA"], positions: {}, career: {}, bestSeason: {}, mvp: [], cyYoung: [], hof: null,
+    allStar: [], wsTitles: [], birthCountry: null, birthState: null,
   });
   const fixture: PlayersDataset = {
     meta: { source: "test", sourceUrl: "", release: "", license: "", playerCount: 5 },
     teams: { AAA: "Springfield Isotopes" },
+    franchises: { AAA: "Springfield Isotopes" },
     players: [
       player("barkeal01", "Alan", "Barker"),
       player("parkeal01", "Alan", "Parker"),

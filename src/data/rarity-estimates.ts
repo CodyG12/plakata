@@ -1,61 +1,24 @@
 /**
- * Curated, question-specific popularity estimates — PROVISIONAL.
+ * Curated, question-specific popularity tiers: the PRIOR for community rarity.
  *
  * These are hand-assigned judgments of how commonly a typical baseball fan
  * would name a player *for this specific question*. They are NOT measured
- * community answer frequencies, search volume, or pageview data. They exist so
- * the MVP has deterministic, explainable scoring until real submission data
- * replaces them (see src/lib/baseball/calculate-rarity.ts).
+ * answer frequencies. src/lib/rarity/rarity.ts converts them into a normalized
+ * prior probability distribution, which real community answers gradually
+ * outweigh (Bayesian smoothing, α = 100 by default).
+ *
+ * Only the original seven questions have curated tiers. Other questions start
+ * from a uniform prior.
  *
  * Every player ID below is verified by the test suite to (a) exist in
  * players.json and (b) satisfy the question it is listed under.
  *
- * Players not listed for a question receive FALLBACK_RARITY.
+ * Each question's one Plákata answer is chosen in src/data/question-bank.ts.
  */
-import type { QuestionId } from "./questions";
 
 export type PopularityTier = "iconic" | "famous" | "wellKnown" | "known";
 
-/** Rarity score (0–100) awarded for each popularity tier. Higher = rarer. */
-export const TIER_RARITY: Record<PopularityTier, number> = {
-  iconic: 5, // the first handful of names almost everyone says
-  famous: 20, // household names
-  wellKnown: 40, // stars a regular fan will think of
-  known: 60, // recognizable, but not top-of-mind
-};
-
-/**
- * Score for valid answers with no curated estimate. Uncurated players are
- * presumed less commonly named than anyone on the curated lists, so this sits
- * above the "known" tier (a Triple) — but it is a neutral default, not
- * evidence of rarity. It must stay below the Plákata threshold (80): only the
- * single pick below is a Plákata.
- */
-export const FALLBACK_RARITY = 75;
-
-/** Rarity for each question's one Plákata answer. */
-export const PLAKATA_RARITY = 100;
-
-/**
- * The ONE Plákata answer per question: a hand-picked, deliberately obscure
- * player who still fits the question. Everyone else uncurated is a Triple.
- * Edit freely. Tests verify each pick exists, qualifies, and is not also on
- * that question's curated list.
- *
- * Starting picks: the eligible, uncurated player with the fewest career games,
- * except Yankees and Mariners, where that rule lands on one-game players.
- */
-export const PLAKATA_PICKS: Record<QuestionId, string> = {
-  "hr-300": "sexsori01", // Richie Sexson
-  mvp: "chandsp01", // Spud Chandler
-  yankees: "meulehe01", // Hensley Meulens
-  "hits-2000": "whitede01", // Deacon White
-  "cy-young": "hoytla01", // LaMarr Hoyt
-  mariners: "brantmi01", // Mickey Brantley
-  "hall-of-fame": "grantfr99", // Frank Grant
-};
-
-export const RARITY_ESTIMATES: Record<QuestionId, Record<string, PopularityTier>> = {
+export const RARITY_ESTIMATES: Record<string, Record<string, PopularityTier>> = {
   "hr-300": {
     ruthba01: "iconic", // Babe Ruth
     bondsba01: "iconic", // Barry Bonds

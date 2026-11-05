@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { PLAYER_ALIASES } from "@/data/aliases";
-import { QUESTIONS, getQuestion } from "@/data/questions";
+import { QUESTION_BANK } from "@/data/question-bank";
 import { getPlayerIndex } from "./dataset";
-import { MESSAGES, validateAnswer } from "./validate-answer";
+import { liveTarget, MESSAGES, validateAnswer } from "./validate-answer";
 
 const index = getPlayerIndex();
-const criteria = (id: string) => getQuestion(id)!.criteria;
-const validate = (input: string, questionId: string) => validateAnswer(input, criteria(questionId), index);
+const target = (slug: string) => liveTarget(QUESTION_BANK.find((q) => q.slug === slug)!.criteria, index);
+const validate = (input: string, slug: string) => validateAnswer(input, target(slug), index);
 
 describe("validateAnswer — real Lahman data", () => {
   it("accepts valid answers for each question", () => {
@@ -84,12 +84,12 @@ describe("validateAnswer — real Lahman data", () => {
     });
 
     it("accepts the user's choice, and only a choice from the offered list", () => {
-      const pick = validateAnswer("Luis Castillo", criteria("mariners"), index, "castilu03");
+      const pick = validateAnswer("Luis Castillo", target("mariners"), index, "castilu03");
       expect(pick).toMatchObject({ status: "valid", playerId: "castilu03" });
       // A namesake who doesn't fit (castilu01) or an unrelated ID can't be forced through.
-      expect(validateAnswer("Luis Castillo", criteria("mariners"), index, "castilu01").status).toBe("choose");
-      expect(validateAnswer("Luis Castillo", criteria("mariners"), index, "jeterde01").status).toBe("choose");
-      expect(validateAnswer("Derek Jeter", criteria("mvp"), index, "ohtansh01").status).toBe("ineligible");
+      expect(validateAnswer("Luis Castillo", target("mariners"), index, "castilu01").status).toBe("choose");
+      expect(validateAnswer("Luis Castillo", target("mariners"), index, "jeterde01").status).toBe("choose");
+      expect(validateAnswer("Derek Jeter", target("mvp"), index, "ohtansh01").status).toBe("ineligible");
     });
   });
 
@@ -127,10 +127,16 @@ describe("validateAnswer — real Lahman data", () => {
     expect(validate("Nolan Ryan", "cy-young").message).toBe(MESSAGES.ineligible);
   });
 
-  it("covers every configured question", () => {
-    for (const question of QUESTIONS) {
-      expect(() => validateAnswer("Babe Ruth", question.criteria, index)).not.toThrow();
+  it("covers every question in the bank", () => {
+    for (const question of QUESTION_BANK) {
+      expect(() => validateAnswer("Babe Ruth", liveTarget(question.criteria, index), index)).not.toThrow();
     }
+  });
+
+  it("trusts the eligibility set over the live criteria (versioned answers)", () => {
+    const frozen = { criteria: QUESTION_BANK[0].criteria, isEligible: (id: string) => id === "ruthba01" };
+    expect(validateAnswer("Babe Ruth", frozen, index).status).toBe("valid");
+    expect(validateAnswer("Hank Aaron", frozen, index).status).toBe("ineligible");
   });
 });
 
@@ -142,7 +148,9 @@ describe("dataset integrity", () => {
   });
 
   it("does not coerce missing stats to zero", () => {
-    expect(index.getById("ruthba01")).toMatchObject({ hr: 714, hits: 2873, hof: 1936, lastName: "Ruth" });
-    expect(index.getById("aaronha01")).toMatchObject({ hr: 755, hits: 3771 });
+    expect(index.getById("ruthba01")).toMatchObject({ career: { homeRuns: 714, hits: 2873 }, hof: 1936, lastName: "Ruth" });
+    expect(index.getById("aaronha01")).toMatchObject({ career: { homeRuns: 755, hits: 3771 } });
+    // A position player with no pitching rows has no pitching stats, not zero.
+    expect(index.getById("aaronha01")!.career.wins).toBeUndefined();
   });
 });

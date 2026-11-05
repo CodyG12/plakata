@@ -2,6 +2,7 @@ import rawDataset from "@/data/players.json";
 import { PLAYER_ALIASES } from "@/data/aliases";
 import type { BaseballPlayer, PlayersDataset } from "@/types/baseball";
 import { normalizeName } from "./normalize-name";
+import type { NameLookup } from "./criteria";
 import { damerauLevenshtein } from "./string-distance";
 
 /** Where a lookup key came from. */
@@ -19,13 +20,15 @@ export interface FuzzyMatch {
 
 /**
  * In-memory lookup tables over the Lahman-derived dataset. Built once per
- * server process (the JSON is ~3.5 MB and is never sent to the browser).
+ * server process (the JSON is ~12 MB and is never sent to the browser).
  *
  * The index knows nothing about questions, popularity, or eligibility — name
  * resolution must be decided by the name alone.
  */
-export interface PlayerIndex {
+export interface PlayerIndex extends NameLookup {
   meta: PlayersDataset["meta"];
+  /** Every player, in dataset order (sorted by id). */
+  all(): readonly BaseballPlayer[];
   getById(id: string): BaseballPlayer | undefined;
   /** Players whose canonical name normalizes to `key`. */
   byCanonicalName(key: string): ReadonlySet<string>;
@@ -38,7 +41,6 @@ export interface PlayerIndex {
    * first names) within `maxDistance` edits of `key`.
    */
   fuzzy(key: string, maxDistance: number, includePartial: boolean): FuzzyMatch | null;
-  teamName(teamId: string): string;
   /** Properly spelled text for a normalized key (canonical name, alias, or partial name). */
   displayOf(key: string): string | undefined;
 }
@@ -95,11 +97,13 @@ export function createPlayerIndex(
 
   return {
     meta: dataset.meta,
+    all: () => dataset.players,
     getById: (id) => byId.get(id),
     byCanonicalName: (key) => canonical.get(key) ?? EMPTY,
     byAlias: (key) => alias.get(key) ?? EMPTY,
     byPartialName: (key) => partial.get(key) ?? EMPTY,
     teamName: (teamId) => dataset.teams[teamId] ?? teamId,
+    franchiseName: (franchiseId) => dataset.franchises?.[franchiseId] ?? franchiseId,
     displayOf: (key) => display.get(key),
 
     fuzzy(key, maxDistance, includePartial) {

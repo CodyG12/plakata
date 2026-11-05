@@ -10,17 +10,29 @@ import {
   TriangleAlert,
   Users,
 } from "lucide-react";
-import { QUESTIONS, ROUND_SECONDS } from "@/data/questions";
 import { useCountdown } from "@/lib/game/use-countdown";
-import type { ValidationStatus } from "@/types/baseball";
-import type { GameState } from "@/types/game";
+import type { ValidationResult, ValidationStatus } from "@/types/baseball";
+import type { ActiveRoundView, RoundResultView } from "@/types/api";
 import { AnswerInput } from "./AnswerInput";
 import { CountdownTimer } from "./CountdownTimer";
 import { ProgressIndicator } from "./ProgressIndicator";
 
 interface GameScreenProps {
-  state: GameState;
+  /** The running round, from the server. Its times are on the server clock. */
+  round: ActiveRoundView;
+  /** Completed rounds, for the progress bar. */
+  rounds: RoundResultView[];
+  roundCount: number;
   totalScore: number;
+  /** Server clock minus local clock (ms). */
+  clockOffset: number;
+  pending: boolean;
+  feedback: ValidationResult | null;
+  attempts: number;
+  inputVersion: number;
+  /** The local countdown has run out; the server is settling the round. */
+  timeUp: boolean;
+  error: string | null;
   onExpire: () => void;
   onSubmit: (text: string) => void;
   /** Pick one of several namesakes who all fit the question. */
@@ -34,26 +46,32 @@ const FEEDBACK_ICONS: Partial<Record<ValidationStatus, typeof CircleX>> = {
 };
 
 export function GameScreen({
-  state,
+  round,
+  rounds,
+  roundCount,
   totalScore,
+  clockOffset,
+  pending,
+  feedback,
+  attempts,
+  inputVersion,
+  timeUp: settling,
+  error,
   onExpire,
   onSubmit,
   onChoose,
 }: GameScreenProps) {
-  const remaining = useCountdown(state.deadline, onExpire);
-  const question = QUESTIONS[state.roundIndex];
-  // The answer clock runs from answerOpensAt to the deadline; before that, the player reads.
-  const answerWindowMs =
-    state.deadline !== null && state.answerOpensAt !== null
-      ? state.deadline - state.answerOpensAt
-      : ROUND_SECONDS * 1000;
+  // Display only: the server's expiresAt converted to this device's clock. The server
+  // independently enforces the deadline, so a wrong local clock can't buy extra time.
+  const remaining = useCountdown(round.expiresAt - clockOffset, onExpire);
+  // The answer clock runs from opensAt to expiresAt; before that, the player reads.
+  const answerWindowMs = round.expiresAt - round.opensAt;
   const reading = remaining === null || remaining > answerWindowMs;
   const readSecondsLeft =
     remaining === null ? null : Math.ceil((remaining - answerWindowMs) / 1000);
   const clockMs =
     remaining === null ? answerWindowMs : Math.min(remaining, answerWindowMs);
-  const timeUp = remaining !== null && remaining <= 0;
-  const feedback = state.feedback;
+  const timeUp = settling || (remaining !== null && remaining <= 0);
   const FeedbackIcon = feedback
     ? (FEEDBACK_ICONS[feedback.status] ?? CircleX)
     : CircleX;
@@ -65,8 +83,9 @@ export function GameScreen({
     <section className="flex flex-col gap-8" aria-labelledby="question">
       <header className="flex items-center justify-between gap-4">
         <ProgressIndicator
-          roundIndex={state.roundIndex}
-          rounds={state.rounds}
+          roundIndex={round.position}
+          roundCount={roundCount}
+          rounds={rounds}
         />
         <div className="flex items-center gap-5">
           <div className="text-right">
@@ -84,13 +103,13 @@ export function GameScreen({
       {/* GameApp keys this whole screen by round, so everything resets per round. */}
       <div className="animate-rise">
         <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-stitch-400">
-          Round {state.roundIndex + 1}
+          Round {round.position + 1}
         </p>
         <h1
           id="question"
           className="font-display text-3xl font-semibold leading-tight text-balance text-cream-50 sm:text-[2.6rem] sm:leading-[1.1]"
         >
-          {question.prompt}
+          {round.prompt}
         </h1>
         <p className="mt-3 text-[15px] text-navy-300">
           Rarer players score more. Guess as often as you like before time runs
@@ -102,9 +121,9 @@ export function GameScreen({
           rejected attempt clears and refocuses the field. */}
       {!reading && (
         <AnswerInput
-          key={state.inputVersion}
+          key={inputVersion}
           disabled={timeUp}
-          pending={state.pending}
+          pending={pending}
           onSubmit={onSubmit}
           initialValue={suggestion ?? ""}
         />
@@ -130,7 +149,7 @@ export function GameScreen({
         {/* Generic, name-free feedback: never lists or hints at players. */}
         {suggestion && !timeUp && (
           <div
-            key={`suggestion-${state.inputVersion}`}
+            key={`suggestion-${inputVersion}`}
             className="flex items-start gap-2 rounded-xl bg-navy-900/80 px-4 py-3 text-[15px] ring-1 ring-navy-600 animate-rise"
           >
             <SpellCheck
@@ -165,7 +184,7 @@ export function GameScreen({
                 <button
                   key={option.playerId}
                   type="button"
-                  disabled={state.pending}
+                  disabled={pending}
                   onClick={() => onChoose(option.playerId)}
                   className="rounded-xl bg-navy-800 px-4 py-3 text-left ring-1 ring-navy-700 transition hover:bg-navy-700 hover:ring-cream-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cream-100 disabled:opacity-50"
                 >
@@ -184,7 +203,7 @@ export function GameScreen({
         {feedback && !suggestion && !options && !timeUp && (
           // key = attempt number, so the message re-animates on every rejected guess.
           <div
-            key={state.attempts}
+            key={attempts}
             className="flex items-start gap-2 rounded-xl bg-stitch-600/15 px-4 py-3 text-[15px] ring-1 ring-stitch-500/40 animate-rise"
           >
             <FeedbackIcon
@@ -193,22 +212,22 @@ export function GameScreen({
             />
             <p className="font-medium text-stitch-100">
               {feedback.message}
-              {state.attempts > 1 && (
+              {attempts > 1 && (
                 <span className="ml-2 font-mono text-xs font-normal text-stitch-100/70">
-                  ×{state.attempts}
+                  ×{attempts}
                 </span>
               )}
             </p>
           </div>
         )}
 
-        {state.error && !timeUp && (
+        {error && !timeUp && (
           <p className="flex items-start gap-2 rounded-xl bg-navy-900/80 px-4 py-3 text-[15px] text-cream-200 ring-1 ring-navy-700 animate-rise">
             <TriangleAlert
               className="mt-0.5 size-4 shrink-0 text-cream-300"
               aria-hidden
             />
-            {state.error} Your guess wasn&apos;t counted — try again.
+            {error} Your guess wasn&apos;t counted. Try again.
           </p>
         )}
 

@@ -1,6 +1,6 @@
-import { Gem, Play, Timer, Trophy } from "lucide-react";
+import { Gem, Play, Timer, TriangleAlert, Trophy } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { MAX_GAME_SCORE, READ_SECONDS, ROUND_COUNT, ROUND_SECONDS } from "@/data/questions";
+import { GAME_MODES, MAX_GAME_SCORE, READ_SECONDS, ROUND_COUNT, ROUND_SECONDS, type GameMode } from "@/lib/game/config";
 import { SCORING_TIERS } from "@/lib/baseball/scoring";
 
 /** "Bunt 10 · Single 25 · … · Plákata 100", straight from the scoring table. */
@@ -9,14 +9,24 @@ const HIT_LADDER = SCORING_TIERS.filter((t) => t.points > 0)
   .join(" · ");
 
 interface LandingScreenProps {
-  onStart: () => void;
+  mode: GameMode;
+  onModeChange: (mode: GameMode) => void;
+  onStart: (mode: GameMode) => void;
+  /** A game is being created. */
+  busy?: boolean;
+  error?: string | null;
 }
+
+const MODE_OPTIONS: Record<GameMode, { label: string; hint: string }> = {
+  daily: { label: "Daily", hint: "Today’s seven, the same for everyone" },
+  random: { label: "Random", hint: "Seven fresh prompts from the full bank" },
+};
 
 const RULES = [
   {
     icon: Timer,
     title: `${ROUND_COUNT} prompts, ${ROUND_SECONDS} seconds each`,
-    body: `Each round asks for a player who fits — 300 homers, an MVP, a Mariner… You get ${READ_SECONDS} seconds to read the prompt before the clock starts.`,
+    body: `Each round asks for a player who fits: 300 homers, a Montreal Expo, someone born in Japan… You get ${READ_SECONDS} seconds to read the prompt before the clock starts.`,
   },
   {
     icon: Gem,
@@ -30,7 +40,7 @@ const RULES = [
   },
 ];
 
-export function LandingScreen({ onStart }: LandingScreenProps) {
+export function LandingScreen({ mode, onModeChange, onStart, busy = false, error = null }: LandingScreenProps) {
   return (
     <section className="flex flex-col items-center gap-10 text-center animate-rise">
       <div className="flex flex-col items-center">
@@ -54,9 +64,42 @@ export function LandingScreen({ onStart }: LandingScreenProps) {
         ))}
       </ul>
 
-      <Button size="lg" onClick={onStart} icon={<Play className="size-5 fill-current" aria-hidden />} className="w-full sm:w-auto sm:px-12">
-        Swing Away
-      </Button>
+      <div className="flex w-full flex-col items-center gap-4">
+        <div role="radiogroup" aria-label="Game mode" className="inline-flex rounded-full bg-navy-900/70 p-1 ring-1 ring-navy-800">
+          {GAME_MODES.map((m) => (
+            <button
+              key={m}
+              type="button"
+              role="radio"
+              aria-checked={mode === m}
+              onClick={() => onModeChange(m)}
+              className={`rounded-full px-4 py-1.5 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cream-100 ${
+                mode === m ? "bg-cream-100 text-ink" : "text-navy-300 hover:text-cream-100"
+              }`}
+            >
+              {MODE_OPTIONS[m].label}
+            </button>
+          ))}
+        </div>
+        <p className="-mt-1 text-sm text-navy-300">{MODE_OPTIONS[mode].hint}</p>
+
+        <Button
+          size="lg"
+          onClick={() => onStart(mode)}
+          disabled={busy}
+          icon={<Play className="size-5 fill-current" aria-hidden />}
+          className="w-full sm:w-auto sm:px-12"
+        >
+          Swing Away
+        </Button>
+
+        {error && (
+          <p role="alert" className="flex items-start gap-2 rounded-xl bg-navy-900/80 px-4 py-3 text-left text-[15px] text-cream-200 ring-1 ring-navy-700">
+            <TriangleAlert className="mt-0.5 size-4 shrink-0 text-cream-300" aria-hidden />
+            {error}
+          </p>
+        )}
+      </div>
     </section>
   );
 }

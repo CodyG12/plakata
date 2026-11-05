@@ -1,52 +1,95 @@
-# Plákata — baseball trivia where obscure wins
+# Plákata: baseball trivia where obscure wins
 
 A Krillion-style baseball trivia game. Each round asks for an MLB player who fits a prompt
-("at least 300 career home runs", "played for the Seattle Mariners"…). Any valid player counts,
-but **rarer answers score more**: every round is a Strikeout, Bunt, Single, Double, Triple or Plákata.
-Babe Ruth on the 300-HR question is a Bunt; Jay Buhner there is a Triple.
+("at least 300 career home runs", "played for the Montreal Expos", "born in Japan"…). Any valid player
+counts, but **rarer answers score more**: every round is a Strikeout, Bunt, Single, Double, Triple or
+Plákata, and rarity comes from **what real fans actually answer**.
 
 Seven rounds: 3 seconds to read each prompt, then 30 seconds to answer. Up to 100 points per round (700 max).
+The server runs the game: it picks the questions, keeps the clock, checks answers and awards points.
 
-## Quick start
+## Quick start (local)
 
 ```bash
 npm install
-npm run dev          # http://localhost:3000
+npm run plakata -- setup   # create the local database, import 24,011 players, sync 43 questions (~10 s)
+npm run dev                # http://localhost:3000
 ```
 
-| Command              | What it does                                   |
-| -------------------- | ---------------------------------------------- |
-| `npm run dev`        | Dev server                                     |
-| `npm test`           | Unit tests (Vitest)                            |
-| `npm run lint`       | ESLint                                         |
-| `npm run typecheck`  | TypeScript                                     |
-| `npm run build`      | Production build (`npm start` to serve it)     |
-| `npm run build:data` | Regenerate `src/data/players.json` (see below) |
+No credentials are needed locally. Without `DATABASE_URL`, the app uses **PGlite**: real PostgreSQL
+compiled to WebAssembly, stored in `.data/pglite` (git-ignored). It uses the same schema, migrations and SQL
+as production. Only one process can open it at a time, so stop `npm run dev` before running CLI commands
+that write (`setup`, `questions:sync`, `rarity:refresh`).
 
-Deploys to Vercel as-is — no environment variables, database, or other services.
+| Command                                    | What it does                                                    |
+| ------------------------------------------ | --------------------------------------------------------------- |
+| `npm run dev`                              | Dev server                                                      |
+| `npm test`                                 | Unit + integration tests (Vitest; integration uses in-memory PGlite) |
+| `npm run lint` / `npm run typecheck`       | ESLint / TypeScript                                             |
+| `npm run build`                            | Production build (`npm start` to serve it)                      |
+| `npm run plakata -- setup`                 | Migrate, import players, sync the question bank                 |
+| `npm run plakata -- questions:sync`        | Make the DB match `src/data/question-bank.ts` (new versions, disable removed) |
+| `npm run plakata -- questions:list`        | Active questions with eligible-answer and observation counts    |
+| `npm run plakata -- questions:preview <slug\|all>` | Eligible count, sample answers and the Plákata pick (no DB writes) |
+| `npm run plakata -- questions:coverage`    | Dataset gaps (missing birthplaces, pitching records…)           |
+| `npm run plakata -- rarity:refresh [--alpha N]` | Rebuild scoring snapshots from community answers           |
+| `npm run plakata -- daily:show [YYYY-MM-DD]` | Show (creating if needed) a day's daily challenge             |
+| `npm run db:generate`                      | Generate a SQL migration after editing `src/server/db/schema.ts` |
+| `npm run build:data -- <dir>`              | Regenerate `src/data/players.json` from Lahman CSVs (see below) |
+
+### Environment variables
+
+See `.env.example`.
+
+| Variable            | Local    | Production   | Purpose                                                          |
+| ------------------- | -------- | ------------ | ---------------------------------------------------------------- |
+| `DATABASE_URL`      | optional | **required** | PostgreSQL connection string (use your provider's pooled URL)    |
+| `PLAKATA_SECRET`    | optional | **required** | ≥ 32 random chars. Signs round tokens and participant cookies, keys the IP hash |
+| `CRON_SECRET`       | –        | recommended  | Enables the daily `/api/cron/refresh-rarity` job                  |
+| `RARITY_ALPHA`      | –        | optional     | Prior strength α (default 100)                                   |
+| `DATABASE_POOL_MAX` | –        | optional     | Connections per instance (default 5)                             |
+
+Credentials are only read on the server. Nothing in `src/server` is imported by client components, and the
+browser bundle contains no player data, eligibility sets or secrets.
+
+## Deploying to Vercel
+
+1. Create a PostgreSQL database. **Neon** works well (Vercel Marketplace → Neon); Supabase or any Postgres 14+
+   also works. Copy the **pooled** connection string.
+2. Initialize it once from your machine:
+   ```bash
+   DATABASE_URL='postgresql://…' npm run plakata -- setup
+   ```
+   Re-run `setup` (or `questions:sync`) whenever the question bank, players.json or schema changes. It's
+   idempotent.
+3. In the Vercel project, set `DATABASE_URL`, `PLAKATA_SECRET` (`openssl rand -hex 32`) and `CRON_SECRET`.
+4. Deploy. `vercel.json` schedules `/api/cron/refresh-rarity` daily at 09:00 UTC. It rebuilds snapshots from
+   new answers; games in progress and the current day's challenge keep the snapshots they froze.
+
+Without `DATABASE_URL` the production server refuses to start a database connection. PGlite on serverless
+would silently lose data.
 
 ## How to play
 
-1. Press **Swing Away**.
+1. Pick a mode (**Daily** by default, or **Random**) and press **Swing Away**.
+   - **Daily:** the same seven prompts, in the same order and scored against the same frozen rarity
+     snapshots, for everyone on a given UTC day.
+   - **Random:** seven prompts drawn server-side from the full bank, one per category.
 2. Each round opens with **3 seconds to read the prompt**. Only the prompt and a short countdown show; the
-   answer field and Submit button are hidden and the 30-second clock holds. When reading ends, the field
-   appears with focus and the clock starts.
+   answer field appears and the 30-second clock starts when reading ends.
 3. Type a player's name from memory and press **Enter** or **Submit**. There are no suggestions, so the
    interface never hints at possible answers.
-4. **Guess as many times as you like.** A rejected guess shows a short message, clears the field, and the
-   clock keeps running. Wrong guesses cost nothing but time.
-5. Minor typos get a correction: type "Derek Jeeter" and the field changes to "Derek Jeter" with **"Did you
-   mean Derek Jeter?"** Press Enter to submit it, or edit it. A suggestion isn't counted as a wrong guess,
-   and the clock keeps running. For father/son namesakes, the plain name means the father: "Ken Griffey"
-   is submitted as Ken Griffey Sr., and only "Ken Griffey Jr." reaches the son. A surname alone
-   that several players share ("Griffey", "Johnson") must be typed as a full name. A full name shared by
-   unrelated players ("Randy Johnson") counts if any of them fits the question; if several fit, you pick
-   which one you meant.
-6. The first **valid** answer ends the round. It's always a hit, classified by its estimated rarity
-   (see [Scoring](#scoring)).
+4. **Guess as many times as you like.** A rejected guess shows a short, generic message and clears the field.
+   The clock keeps running.
+5. Minor typos get a correction ("Did you mean Derek Jeter?"). Press Enter to submit it, or edit it. It isn't
+   counted as a wrong guess. Father/son namesakes default to the father ("Ken Griffey" = Sr.). A surname
+   alone that several players share must be typed as a full name. If several unrelated namesakes fit the
+   question, you pick which one you meant.
+6. The first **valid** answer ends the round and earns a hit (see [Scoring](#scoring)).
 7. When time runs out without a valid answer, the round is a **Strikeout** and scores zero.
 
-An in-progress game survives a page refresh (saved in `localStorage`; the timer keeps counting).
+Refreshing the page resumes the game exactly where it stands. Only the game id is kept in `localStorage`; the
+server holds the state and the clock.
 
 ## Architecture
 
@@ -54,81 +97,168 @@ An in-progress game survives a page refresh (saved in `localStorage`; the timer 
 scripts/
   download-lahman.sh      Fetch the needed Lahman CSVs from SABR
   build-dataset.mjs       CSVs → src/data/players.json (pure derivation, no hand edits)
+  plakata.ts              Admin CLI (setup, question sync/preview, rarity refresh, daily)
+drizzle/                  SQL migrations (generated from the schema, committed)
 src/
   data/
-    players.json          24,011 players (generated, ~3.5 MB, server-only)
-    questions.ts          The seven questions + round length — edit to change the game
-    rarity-estimates.ts   Curated, per-question popularity tiers (provisional)
+    players.json          24,011 players (generated, ~12 MB, server-only)
+    question-bank.ts      43 question definitions (typed criteria + Plákata pick): edit to change the bank
+    rarity-estimates.ts   Curated popularity tiers for the original seven: the rarity PRIOR
     aliases.ts            Nicknames / Jr.-Sr. disambiguation → player IDs
-  lib/baseball/           Pure, UI-independent game logic
-    normalize-name.ts     Case/accent/punctuation/initials normalization
-    string-distance.ts    Damerau-Levenshtein distance with early cut-off
-    dataset.ts            Lookup tables: canonical names, aliases, surnames/first names, fuzzy buckets
-    resolve-player.ts     Typed text → exactly one player, or ambiguous/unrecognized (no question knowledge)
-    criteria.ts           Does player X satisfy question criteria Y? (+ factual explanation)
-    validate-answer.ts    resolve-player → criteria → ValidationResult (generic messages when rejected)
-    calculate-rarity.ts   ValidationResult → rarity estimate (chain of RarityEstimators) → ScoreResult
-    scoring.ts            Tier names, rarity thresholds and fixed points: the only place they're defined
-  lib/game/
-    reducer.ts            Game state machine (landing → playing → round-result → game-complete)
-    use-countdown.ts      Deadline-based timer hook (one interval per round, always cleaned up)
+  lib/baseball/           Pure game logic (name matching, criteria, scoring tiers)
+  lib/rarity/rarity.ts    Prior → Bayesian smoothing → calibration → snapshot → tier (pure, deterministic)
+  lib/questions/selection.ts  Balanced random and date-seeded daily selection
+  lib/game/               Client: view reducer, API client, countdown hook, shared game constants
+  server/
+    db/schema.ts          PostgreSQL schema (Drizzle ORM)
+    db/client.ts          node-postgres when DATABASE_URL is set, PGlite otherwise
+    game-service.ts       Server-authoritative lifecycle: create, start, submit, complete
+    question-store.ts     Question versions, eligibility sets, snapshots (cached by id; immutable)
+    tokens.ts             Signed round tokens (HS256 JWT via jose)
+    participant.ts        Signed anonymous participant cookie, IP hashing
+    rate-limit.ts         Fixed-window limits stored in Postgres
+    http.ts               Route plumbing: caller identity, errors, no-store
   app/api/
-    answers               POST {questionId, input} → { validation, score? }  (score only when valid)
-  components/game/        Screens: Landing, Game, RoundResult, FinalResults + parts
+    games                               POST {mode} → new game (server picks 7 questions)
+    games/[gameId]                      GET → current state (refresh recovery)
+    games/[gameId]/rounds/start         POST → start the next round (idempotent)
+    games/[gameId]/rounds/[roundId]/submit    POST {token, input, playerId?}
+    games/[gameId]/rounds/[roundId]/complete  POST → settle a round whose time is up
+    cron/refresh-rarity                 GET (Bearer CRON_SECRET) → rebuild rarity snapshots
+  components/game/        Screens: Landing, Game, RoundResult, FinalResults (visual design unchanged)
 ```
 
-**Why server routes?** The full player dataset is ~3.5 MB, too large to ship to the browser. Validation runs
-in one small Next.js route handler; the client bundle contains no player data. All game
-logic is plain TypeScript and unit-tested independently of React and Next.
+### Database
 
-**State machine.** Every round-scoped action carries its `roundIndex`, and the reducer rejects anything that
-doesn't match the current state. That makes stale timer ticks, double submits, late network responses, and
-skipping ahead harmless. The timer stores an absolute deadline rather than a counter, so it can't drift or
-double-count, and it survives refreshes.
+| Table                 | What it holds                                                                 |
+| --------------------- | ----------------------------------------------------------------------------- |
+| `participants`        | Anonymous id (server-issued) + hashed first IP. No names, emails or raw IPs.  |
+| `players`             | Lahman players: id, name, aliases, full attribute JSON, data release          |
+| `questions`           | Stable question slug                                                          |
+| `question_versions`   | Immutable prompt + typed criteria + data release + content hash; one active per slug |
+| `question_eligibility`| Precomputed valid player ids per version (PK version+player)                  |
+| `scoring_snapshots`   | Frozen distribution (JSONB) per version: α, calc version, pick, observation count |
+| `rarity_stats`        | Per-answer n, N, prior, observed, smoothed probability and calibrated rarity  |
+| `daily_challenges`    | One row per UTC day: the 7 version ids and 7 snapshot ids                     |
+| `games` / `rounds`    | Game mode and total; per round: question version, snapshot, server times, token id, accepted answer, tier, points |
+| `submissions`         | Every attempt: raw text, outcome (valid, ineligible, ambiguous, unrecognized, suggestion, choose, not_open, expired, closed), accepted flag, server time |
+| `rarity_observations` | The ONLY input to rarity: one row per participant per question version        |
+| `rate_limits`         | Fixed-window counters                                                         |
 
-**Round rules in the reducer.** Only a valid answer ends a round early. Rejected guesses (ineligible,
-ambiguous, or unrecognized) increment an attempt counter and keep the round open. Network errors don't
-count as attempts. A guess can't start at or after the deadline.
-A _correct_ guess sent before the deadline still counts if its response arrives within a 3-second grace
-period. Anything else that resolves after the deadline ends the round with zero points.
+Constraints that enforce the rules: `rounds(game_id, position)` unique; `rounds.points` must be one of
+0/10/25/50/75/100; `rarity_observations(participant_id, question_version_id)` unique and `(round_id)`
+unique; one active version per slug (partial unique index).
+
+### Server-authoritative timing
+
+- `POST …/rounds/start` sets `startedAt = now`, `opensAt = now + 3 s`, `expiresAt = opensAt + 30 s` on the
+  **server clock** and issues a round token. Calling it again while the round runs returns the same round
+  unchanged, so refreshes, retries and second tabs can't reset the clock or skip ahead. Rounds start
+  strictly in order, and only after the previous one has finished.
+- **Deadline policy:** a submission counts only if the server **receives** it no later than
+  `expiresAt + 750 ms` (`LATENCY_GRACE_MS`, covering a guess sent at 29.9 s that arrives late).
+  Submissions received before `opensAt` are rejected (`not_open`). Client timestamps are never read.
+- The browser computes `offset = serverNow − localNow` from each response and displays
+  `expiresAt − offset`. Changing the device clock only changes the display. When the display hits zero,
+  the client asks `…/complete`, which settles the round as a Strikeout only once the server agrees time is
+  up (otherwise it answers `round_in_progress` and the client retries). A round that ran out while the
+  page was closed is settled on the next read.
+- **Round tokens** are HS256 JWTs (via `jose`, key derived from `PLAKATA_SECRET`) carrying game id, round
+  id, question version, position, start/expiry and a unique `jti`. Every submission checks the signature,
+  then that the token matches the round **row** (same round, game, question version and `jti`). The
+  database row, not the token, decides whether the round is open. An authentic expired token still
+  identifies its round, so a late answer becomes a Strikeout, never points.
+- **One accepted answer per round:** the accept is `UPDATE rounds … WHERE id = ? AND status = 'active'`
+  inside a transaction. Of two simultaneous correct answers (double click, two tabs, retries), exactly one
+  changes the row; the other gets the finished round back. `start` also takes a row lock on the game. The
+  game total is always recomputed in SQL from the rounds, never accumulated or accepted from the client.
+- Games are bound to the participant cookie: anyone else gets `404` for the game id.
+
+### Rate limits and abuse protection
+
+Postgres-backed fixed windows: 25 submissions per 10 s per participant (120 per IP), 30 new games per hour
+per participant (120 per IP). Normal play never comes close. Requests over the limit get `429` and change
+nothing. Inputs are length-capped and schema-validated (zod).
 
 ## Player data
 
 **Source:** [SABR Lahman Baseball Database](https://sabr.org/lahman-database/), release 1871–2025
-(published Dec 10, 2025), licensed **CC BY-SA 3.0**. To regenerate:
+(published Dec 10, 2025), licensed **CC BY-SA 3.0** (attribution in the footer; share-alike applies to
+derived data such as `players.json`). To regenerate:
 
 ```bash
-scripts/download-lahman.sh /tmp/lahman
+scripts/download-lahman.sh /tmp/lahman      # 14 tables incl. Pitching, AllstarFull, *Post, TeamsFranchises
 npm run build:data -- /tmp/lahman
+npm run plakata -- questions:sync           # a new data release creates new question versions
 ```
 
-**Coverage:** every one of the 24,011 people with at least one recorded major-league appearance in Lahman.
-That includes the leagues SABR recognizes as major: NA (1871–75), AA, UA, PL, FL, and the Negro Leagues
-(1920–48).
+**Coverage:** all 24,011 people with a recorded major-league appearance, including the leagues SABR
+recognizes as major (NA 1871–75, AA, UA, PL, FL and the Negro Leagues 1920–48). Each player record has:
+teams and franchises, seasons played, regular-season games by position, career and best-season batting
+(HR, H, RBI, SB) and pitching (W, SO, SV), MVP / Cy Young years, Hall of Fame (player category),
+All-Star seasons, World Series titles, and birth country/state.
 
-| Question                | Qualifying players | Rule (all from Lahman)                                 |
-| ----------------------- | ------------------ | ------------------------------------------------------ |
-| 300+ career HR          | 165                | Sum of `Batting.HR`                                    |
-| MVP winner              | 160                | `AwardsPlayers` "Most Valuable Player"                 |
-| Played for the Yankees  | 1,837              | Any `Appearances` row with teamID `NYA` (1903–present) |
-| 2,000+ career hits      | 298                | Sum of `Batting.H`                                     |
-| Cy Young winner         | 88                 | `AwardsPlayers` "Cy Young Award"                       |
-| Played for the Mariners | 1,036              | Any `Appearances` row with teamID `SEA` (1977–present) |
-| Hall of Fame            | 281                | `HallOfFame` inducted = Y **and** category = Player    |
+**Rules and judgment calls** (each is enforced by code in `src/lib/baseball/criteria.ts`):
 
-**Known limitations and judgment calls**
+- **Franchise vs. team:** a `franchise` question counts every team in the franchise's history
+  (Lahman `franchID`: the Dodgers are Brooklyn and Los Angeles). A `team` question counts specific
+  `teamID`s, i.e. one team name/era (the Montreal Expos = `MON`, not the Nationals). "Yankees" keeps v1's
+  rule (`NYA`, 1903–present, including the Highlanders).
+- **Positions:** regular-season games at the position from `Appearances` (G_c, G_ss, G_cf, …). Prompts
+  state the minimum ("at least 100 career games at catcher"), so one-inning cameos don't count.
+- **Seasons and eras:** a recorded regular-season appearance in a season in range; "career began before
+  1950" = first season < 1950.
+- **Stats:** career totals sum every stint; single-season bests sum every stint within the season.
+  Missing stats are never zero: a player with no pitching rows can't meet a pitching threshold.
+- **All-Star selections:** listed on an `AllstarFull` roster that season, whether or not he played (`GP`);
+  seasons with two games (1959–62) count once. Data starts in 1933.
+- **World Series champions:** Lahman has no championship rosters. A title counts only when the player
+  **appeared in a modern World Series game (1903+) for the winning team** (postseason batting, pitching
+  or fielding row with G > 0, matched to `SeriesPost`). Roster members who never played in the Series,
+  pre-1903 "World Series" and the Negro World Series are excluded. Prompts say "appeared in".
+- **Birthplace:** `People.birthCountry`/`birthState`. 933 players (3.9%, mostly Negro Leagues) have no
+  recorded birthplace and never qualify for birthplace questions, not even "born outside the US".
+  Puerto Rico, Guam, the U.S. Virgin Islands and American Samoa are Lahman "countries"; "outside the
+  United States and its territories" excludes them.
+- **MVP** is whatever Lahman labels Most Valuable Player (includes the Chalmers and League Awards).
+  **Hall of Fame** counts people inducted as players only.
+- Career totals include every league Lahman treats as major, so some 19th-century totals differ from
+  MLB.com.
 
-- Career totals include every league Lahman treats as major. That includes the 1871–75 National
-  Association, which MLB's official records exclude, so a few 19th-century totals differ from MLB.com.
-- "MVP" is whatever Lahman labels Most Valuable Player. That includes the Chalmers Award (1911–14) and the
-  League Awards (1922–29). Babe Ruth's 1923 award counts, for example.
-- "Yankees" includes the 1903–12 New York Highlanders (same franchise, same teamID). It excludes the
-  1901–02 Baltimore Orioles. "Mariners" excludes the 1969 Seattle Pilots, who are today's Brewers.
-- Hall of Fame counts only people inducted as **players**. Executives, managers, umpires and pioneers are
-  excluded. That includes Negro Leagues players inducted in the Player category.
-- Stats are never coerced to zero. A player with no batting record would get `null` and fail stat questions
-  with an explicit message. In this release every player has batting rows.
-- Data is current through the 2025 season and the 2026 Hall of Fame Era Committee election (Jeff Kent).
+## Question bank
+
+43 questions in `src/data/question-bank.ts`, across eight balancing categories:
+
+| Category     | Questions (eligible answers)                                                                 |
+| ------------ | -------------------------------------------------------------------------------------------- |
+| team         | Yankees (1,837), Mariners (1,036), Expos (620), Dodgers franchise (2,002), Braves franchise (2,165), Athletics franchise (2,147), Cubs franchise (2,277) |
+| position     | ≥100 games at catcher (1,020), shortstop (930), center field (1,098)                         |
+| era          | Played in the 1990s (2,805), in 1975 (844), career began before 1950 (11,062)               |
+| stats        | 300 HR (165), 500 HR (28), 2,000 H (298), 3,000 H (33), 200 W (122), 3,000 SO (20), 300 SV (31), 500 SB (39), 40-HR season (165), 50-HR season (34), 20-win season (547), 200-hit season (272) |
+| honors       | MVP (160), Cy Young (88), Hall of Fame (281)                                                 |
+| all_star     | Any selection (2,306), ≥5 selections (379), 1998 All-Star (63)                               |
+| world_series | Played for a champion (1,759), for ≥2 champions (437), 2004 Red Sox (21), 2016 Cubs (25)     |
+| birthplace   | Japan (84), Dominican Republic (937), Venezuela (500), Cuba (455), Puerto Rico (310), Canada (273), California (2,524), outside the US and territories (2,885) |
+
+**Criteria are typed data, not code.** `QuestionCriteria` is a zod-validated discriminated union
+(`franchise`, `team`, `position`, `season`, `debut`, `stat_threshold`, `award`, `hall_of_fame`,
+`all_star`, `world_series_champion`, `birthplace`) with enums for stats and positions.
+
+**Precomputed, versioned eligibility.** `questions:sync` evaluates each definition against every player
+once and stores the valid ids as a **question version** (hash of prompt + criteria + data release). The
+server checks answers by set membership (cached in memory per version). Editing a prompt or criteria, or
+importing a new data release, creates a new version; old rounds keep pointing at theirs, so historical
+results never change. Removing a question (or `active: false`) disables it without deleting history.
+
+**Adding a question:** add an entry to the bank, run `npm run plakata -- questions:preview <slug>` to see
+its answer count and pick, then `questions:sync`. The sync refuses an empty answer set or an ineligible
+Plákata pick.
+
+**Selection.** Random games are drawn with `crypto.randomInt`, round-robin across shuffled categories:
+no duplicates, and no category repeats until all eight are used. The daily seven use the same algorithm
+seeded with the UTC date. The first request of the day writes them, with their snapshot ids, to
+`daily_challenges`, and everyone reads that row afterwards, so the daily can't change mid-day even if the
+bank or snapshots do. The client never chooses questions.
 
 ## Answer matching
 
@@ -213,91 +343,131 @@ neighbour (Jim Rice).
   unique ("Jeter", "Pujols", "Cobb", "Ruth" is unique).
 - Nicknames work only if listed in `aliases.ts`. Reversed names ("Jeter Derek") are not recognized.
 
+
 ## Scoring
 
-Every round ends in exactly one tier with fixed points. All of it lives in `src/lib/baseball/scoring.ts`.
+Every round ends in exactly one tier with fixed points (`src/lib/baseball/scoring.ts`, unchanged
+thresholds):
 
-| Tier      | Estimated rarity | Points |
-| --------- | ---------------- | -----: |
-| Strikeout | no valid answer  |      0 |
-| Bunt      | 0–19             |     10 |
-| Single    | 20–39            |     25 |
-| Double    | 40–59            |     50 |
-| Triple    | 60–79            |     75 |
-| Plákata   | 80–100           |    100 |
+| Tier      | Calibrated rarity | Points |
+| --------- | ----------------- | -----: |
+| Strikeout | no valid answer   |      0 |
+| Bunt      | 0–19              |     10 |
+| Single    | 20–39             |     25 |
+| Double    | 40–59             |     50 |
+| Triple    | 60–79             |     75 |
+| Plákata   | the hand-picked answer |  100 |
 
-- The thresholds are **provisional**; edit `SCORING_TIERS` to change them.
-- `classifyRarity()` rounds and clamps the estimate to 0–100, then picks the highest tier whose minimum
-  it reaches. A valid answer is always at least a Bunt, never zero.
-- A Strikeout happens only when time runs out without a valid answer, however many wrong guesses came
-  first.
-- The game total is the sum of the round points: 700 at most (7 × Plákata).
-- The estimated rarity is stored apart from the points. The round result shows only the tier and points.
+**One Plákata per question.** Each question's `plakataPick` always scores 100 (product decision). Every
+other valid answer gets its tier from community rarity, **capped at a Triple**. Picks for the original
+seven were hand-chosen in v1. Picks for the 36 new questions follow a documented rule (fewest career games
+among eligible players with ≥ 100 games), except in small elite pools where that rule lands on a star
+(e.g. McGwire for 500 HR). Those were hand-picked deep cuts and are marked in the file. **They're
+provisional: review them.**
 
-### Rarity estimates (provisional)
+### How rarity is calculated
 
-Rarity estimates are **not** measured community answer frequencies, search volume, or pageviews.
+All of it is pure, deterministic code in `src/lib/rarity/rarity.ts`.
 
-- `rarity-estimates.ts` puts well-known players into hand-curated, **question-specific** tiers:
-  iconic **5** (Bunt), famous **20** (Single), well-known **40** (Double), known **60** (Triple). The same
-  player can score differently on different questions. Jay Buhner is 20 on the Mariners question
-  (Single), 60 on the 300-HR question (Triple), and an uncurated 75 as a Yankee (Triple).
-- Any valid player who isn't curated for that question gets the documented **fallback of 75** ("deep cut,
-  provisional"). Uncurated players are presumed less commonly named than curated ones, but there's no
-  evidence for how much.
-- **Exactly one Plákata per question.** `PLAKATA_PICKS` names one hand-picked, deliberately obscure
-  player per question (rarity 100). Every other uncurated answer is a Triple; the fallback must stay
-  below 80. Starting picks are the eligible, uncurated player with the fewest career games: Richie
-  Sexson (300 HR), Spud Chandler (MVP), Deacon White (2,000 hits), LaMarr Hoyt (Cy Young) and Frank
-  Grant (Hall of Fame). For the Yankees and Mariners that rule lands on one-game players, so those are
-  hand-picked instead: Hensley Meulens and Mickey Brantley. Tests check every pick exists, qualifies
-  and isn't also curated for that question.
-- The test suite verifies that every curated player ID exists and actually satisfies its question. Writing
-  that check caught several of the author's wrong assumptions, such as Mel Ott never winning an MVP and
-  Christian Yelich being short of 300 HR.
+1. **Prior.** Curated tiers are ordinal, so they're turned into relative naming weights: iconic 27,
+   famous 9, well-known 3, known 1 ("an iconic player is 3× as likely to be named as a famous one"). Uncurated
+   eligible players share 40% of the mass, capped at half a "known" player's weight each. Normalizing gives
+   `p_prior(a|q)`. It's positive for every eligible answer (including unknown deep cuts) and sums to 1.
+   Questions without a curated list get a uniform prior.
+2. **Community frequency.** `n_aq` = eligible observations of answer *a* for question version *q*, and
+   `N_q` = their total. Invalid guesses are never observations, so they're in neither count.
+3. **Bayesian smoothing.** `p_smoothed(a|q) = (n_aq + α·p_prior(a|q)) / (N_q + α)`, with α = 100
+   equivalent observations by default (`RARITY_ALPHA`; a starting point, not a fitted value). After 100
+   real answers the data and the prior weigh equally; after 1,000 the data has ~91% of the weight. It still
+   sums to 1.
+4. **Calibration.** The raw `100 × (1 − p_smoothed)` is kept (`rawRarity`), but it compresses: with
+   2,000 eligible Dodgers even the most common answer has p ≈ 0.02 and scores 98. The calibrated score is
+   the percentile **"rarer than X% of the answers fans give"**: 100 × (mass of strictly more common answers
+   + half the mass tied with this one). It's monotonic (a more common answer is never rarer), deterministic,
+   and spreads answers across the tiers. Tests use synthetic distributions to show the compression and the fix.
+5. **Snapshot.** The distribution is frozen into `scoring_snapshots` (never-named uncurated answers share
+   one entry). Every round records the snapshot id it was created with; daily challenges freeze theirs for
+   the whole day. `rarity:refresh` (or the cron) writes new snapshots that only new games use, so completed
+   scores are reproducible and never change.
 
-Scoring is a chain of `RarityEstimator`s (`calculate-rarity.ts`). A future estimator can be inserted ahead
-of the curated one without touching validation or UI code, for example community answer frequencies with
-Bayesian smoothing toward the curated prior.
+**Zero observations vs. v1.** With no community data yet, scores come from the prior alone. Compared with
+v1's fixed table (iconic Bunt, famous Single, well-known Double, known Triple, uncurated Triple, pick Plákata),
+every curated tier lands within one tier of v1, keeps its order, and the pick is the only Plákata:
+
+| Question     | iconic | famous | well-known | known  | uncurated |
+| ------------ | ------ | ------ | ---------- | ------ | --------- |
+| 300 HR       | Bunt   | Single | Triple     | Triple | Triple    |
+| MVP          | Bunt   | Single | Triple     | Triple | Triple    |
+| Yankees      | Bunt   | Single | Double     | Double | Triple    |
+| 2,000 hits   | Bunt   | Single | Triple     | Triple | Triple    |
+| Cy Young     | Bunt   | Double | Triple     | Triple | Triple    |
+| Mariners     | Bunt   | Single | Double     | Double | Triple    |
+| Hall of Fame | Bunt   | Single | Triple     | Triple | Triple    |
+
+New questions start uniform, so every non-pick answer is a Double until fans play them. The curated
+estimates are a prior only; nothing in the database pretends they are observations.
+
+## Data integrity
+
+Five things are deliberately kept apart:
+
+1. **Submissions:** every attempt, logged with its outcome (an audit trail; never used for rarity).
+2. **Accepted answers:** at most one per round (`rounds.accepted_player_id`).
+3. **Rarity observations:** the first accepted answer a participant gives to a question version. Later
+   games, practice and replays still score but add nothing (unique index). Each IP hash can add at most 5
+   observations per question version per day.
+4. **Snapshots:** frozen distributions built from observations by an explicit refresh.
+5. **Awarded scores:** fixed points written on the round when it's accepted, summed in SQL for the game.
+
+## Limitations
+
+- **Anonymous identity is a cookie.** Participant ids are server-issued and HMAC-signed, so they can't be
+  forged or chosen, but anyone can clear cookies and become a new participant. That's a Sybil attack on
+  rarity. The per-IP observation cap, rate limits and α-smoothing blunt it; they don't stop a determined
+  attacker with many IPs. Before a public leaderboard: accounts or device attestation, outlier detection on
+  observation bursts, and Turnstile on game creation.
+- **Rate limits** are fixed windows in Postgres: simple and approximate (bursts at window edges).
+- **The observation policy is "first answer ever"** per participant and question version, so returning
+  players' changing tastes don't count. A per-season window is a future option.
+- **Calibration and α are design choices**, not fitted to data. Revisit them once real distributions exist.
+  `calc_version` is stored with each snapshot.
+- **Rule picks** for new questions are provisional, and some are active players whose stats will change.
+- **Dataset:** all limitations under [Player data](#player-data). World Series titles require a Series
+  appearance; birthplace questions skip 933 players with no birthplace.
+- No public leaderboard yet; the schema keeps per-game totals, modes and daily dates to support one.
 
 ## Tests
 
-`npm test` runs 96 unit tests covering:
+`npm test` runs unit and integration tests. Integration tests start a fresh **in-memory PostgreSQL
+(PGlite)** with the real migrations and dataset, and pass time in explicitly, so deadlines are exact.
 
-- **Normalization:** case, accents, apostrophes, initials, suffixes.
-- **Name resolution against the real dataset:** exact names, aliases, accents, typo tolerance,
-  "Did you mean" suggestions (and that each one resolves back to the same player), the father/son Sr.
-  default, unique vs. shared surnames, identical full names returned as namesakes, exact-over-fuzzy
-  precedence (Jim Rice vs. Jim Price), and strict short-name matching.
-- **Isolated fixture:** typo ties, near-neighbour precedence, and database-wide ambiguity.
-- **Validation:** surnames never resolved by the question; namesakes accepted when one fits, rejected when
-  none fit, and offered as a choice when several fit (only listed choices accepted); rejected results expose
-  nothing but a status and a generic message.
-- **Damerau-Levenshtein** distance and its early cut-off.
-- **Scoring:** the six tiers, names and points; every threshold boundary; every rarity 0–100 mapping to
-  exactly one non-zero hit; clamping; Strikeouts at zero; the 700 maximum; curated vs. fallback estimates,
-  determinism, and that every curated ID is valid.
-- **Screens:** the round result, final box score, landing rules and progress labels render the tier names
-  and points; every tier color and animation has a theme token.
-- **Game reducer:** the full seven-round loop and the total; unlimited incorrect guesses with the timer
-  untouched; a valid answer ending the round; double-submit and duplicate-response prevention; timeouts
-  as Strikeouts; late and stale responses; no skipping ahead; restart; save/restore including corrupted
-  saves.
+- **Rarity:** prior normalization and tier ordering; uniform priors; the smoothing formula; sums to 1 at
+  every sample size; zero-observation = prior; low-sample stability; convergence of data over prior;
+  calibration vs. raw compression; monotonicity; ties; determinism; unknown valid answers > 0; the pick =
+  Plákata and everyone else capped at Triple; curated priors valid and ordered for the original seven.
+- **Server gameplay:** seven rounds created; random mode distinct and balanced; signed token claims;
+  refresh/re-start doesn't reset the timer; read period rejected; wrong / unknown guesses keep the round
+  open and count; a valid answer ends the round with server-computed points; the pick = Plákata;
+  **three simultaneous correct answers award points once**; token replay; the latency grace boundary
+  (750 ms accepted, 751 ms rejected); expired tokens; `complete` before/after the deadline; lazy expiry;
+  forged / tampered / cross-round / cross-question tokens; other participants; a full seven-round game
+  totaled by the server; observations (only accepted, one per participant, IP cap); **snapshots frozen for
+  old games and the daily while new games use the refresh**; daily determinism.
+- **Questions:** every criteria type against dataset facts plus synthetic edge cases (season gaps,
+  missing pitching, unknown birthplace, territories); schema rejects malformed criteria; every pick is
+  eligible; selection has no duplicates, is balanced and is deterministic per day.
+- **Tokens and cookies:** round-trip, expiry, tampering, `alg: none`; cookie signatures; IP hashing.
+- Plus v1's name-matching, validation, scoring, screen-render and client-reducer tests.
 
-Not automated: browser tests. Screens are covered by server-render tests (`results-render.test.ts`). The
-tiered results UI was checked manually in Chrome at desktop width; it has not yet been re-checked at 375px.
+Manual check: a production build (`next start`) driven in Chrome covered the read period, a wrong
+guess, a mid-round refresh (the clock continued, not reset), a valid answer and a time-out Strikeout,
+with no console errors. The HTTP API was also exercised with real cookies, including forged tokens and
+foreign game ids.
 
-## Ideas for version two
+## Ideas for the next version
 
-1. **Real rarity data.** Log every submission per question. Score with `1 − P(answer)`, using Bayesian
-   smoothing toward the curated tiers until a question has enough plays. This is the core of the game and
-   needs a small database (e.g., Postgres or KV).
-2. **Server-authoritative rounds.** The server currently trusts the client's clock and round state. That's
-   fine for a demo, but a leaderboard would need the server to issue signed round tokens.
-3. **A larger question bank.** Add new criteria types (teams by franchise, positions, seasons, stat
-   thresholds, All-Star selections, World Series champions, birthplace) and pick seven at random or daily.
-4. **More aliases.** Generate nickname and Jr./Sr. coverage from Baseball-Reference or Retrosheet name
-   variants instead of a hand-written list.
-5. **Post-round reveal.** Show the most common answers and the rarest valid answers, which also teaches
-   players what counts as a deep cut.
-6. **Component tests and an end-to-end Playwright run** covering timer expiry and keyboard flows.
+1. **Accounts or attestation** before any leaderboard (see Limitations), then daily leaderboards.
+2. **Post-round reveal:** the most common and rarest answers from the frozen snapshot.
+3. **Fit α and the calibration** to real distributions once a few thousand games exist.
+4. **More aliases** generated from Baseball-Reference/Retrosheet name variants.
+5. **Playwright end-to-end tests** for the timer and keyboard flows.

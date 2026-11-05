@@ -13,6 +13,27 @@ export const MESSAGES = {
 } as const;
 
 /**
+ * What an answer is checked against: the question's criteria (for the
+ * explanation text) and its precomputed, versioned eligibility set (which is
+ * authoritative — see src/server/questions.ts).
+ */
+export interface AnswerTarget {
+  criteria: QuestionCriteria;
+  isEligible(playerId: string): boolean;
+}
+
+/** A target that evaluates the criteria live — for tests and eligibility generation. */
+export function liveTarget(criteria: QuestionCriteria, index: PlayerIndex): AnswerTarget {
+  return {
+    criteria,
+    isEligible: (id) => {
+      const player = index.getById(id);
+      return player !== undefined && checkCriteria(player, criteria, index).met;
+    },
+  };
+}
+
+/**
  * Validates typed text against a question:
  *   1. Resolve the text to players by name alone (see resolve-player.ts).
  *      A probable typo — or a father/son name without "Jr." — returns a
@@ -24,7 +45,7 @@ export const MESSAGES = {
  */
 export function validateAnswer(
   input: string,
-  criteria: QuestionCriteria,
+  target: AnswerTarget,
   index: PlayerIndex,
   chosenPlayerId?: string,
 ): ValidationResult {
@@ -41,14 +62,14 @@ export function validateAnswer(
         message: MESSAGES.suggestion(resolution.suggestion),
       };
     case "resolved":
-      return judge(resolution.player, criteria, resolution.matchType);
+      return judge(resolution.player, target, index, resolution.matchType);
     case "namesakes": {
-      const fitting = resolution.players.filter((p) => checkCriteria(p, criteria).met);
+      const fitting = resolution.players.filter((p) => target.isEligible(p.id));
       if (fitting.length === 0) return { status: "ineligible", message: MESSAGES.ineligible };
-      if (fitting.length === 1) return judge(fitting[0], criteria, resolution.matchType);
+      if (fitting.length === 1) return judge(fitting[0], target, index, resolution.matchType);
       // Only a player from this list can be chosen; anything else re-asks.
       const chosen = fitting.find((p) => p.id === chosenPlayerId);
-      if (chosen) return judge(chosen, criteria, resolution.matchType);
+      if (chosen) return judge(chosen, target, index, resolution.matchType);
       return {
         status: "choose",
         message: MESSAGES.choose(fitting[0].name),
@@ -58,10 +79,15 @@ export function validateAnswer(
   }
 }
 
-function judge(player: BaseballPlayer, criteria: QuestionCriteria, matchType: ValidationResult["matchType"]): ValidationResult {
-  const check = checkCriteria(player, criteria);
-  if (!check.met) return { status: "ineligible", message: MESSAGES.ineligible };
-  return { status: "valid", playerId: player.id, canonicalName: player.name, matchType, message: check.explanation };
+function judge(
+  player: BaseballPlayer,
+  target: AnswerTarget,
+  index: PlayerIndex,
+  matchType: ValidationResult["matchType"],
+): ValidationResult {
+  if (!target.isEligible(player.id)) return { status: "ineligible", message: MESSAGES.ineligible };
+  const explanation = checkCriteria(player, target.criteria, index).explanation;
+  return { status: "valid", playerId: player.id, canonicalName: player.name, matchType, message: explanation };
 }
 
 function toOption(player: BaseballPlayer, index: PlayerIndex): PlayerOption {

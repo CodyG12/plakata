@@ -24,5 +24,12 @@ download Appearances.csv    f_2084267195632
 download AwardsPlayers.csv  f_2084273346810
 download HallOfFame.csv     f_2084268925644
 download Teams.csv          f_2084266946255
+download TeamsFranchises.csv f_2084266696141
+download Pitching.csv       f_2084261668691
+download AllstarFull.csv    f_2084259592081
+download SeriesPost.csv     f_2084273716683
+download BattingPost.csv    f_2084267085161
+download PitchingPost.csv   f_2084272333397
+download FieldingPost.csv   f_2084262844727
 
 echo "Done. Now run: npm run build:data -- $OUT"

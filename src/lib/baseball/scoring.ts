@@ -1,10 +1,12 @@
+import type { ScoreResult } from "@/types/baseball";
+
 /**
  * Baseball-themed scoring: the single source of truth for tier names,
  * thresholds and point values.
  *
  * Every round ends in exactly one tier. A round with no valid answer is a
  * Strikeout (0). A valid answer is always a hit, and the tier comes from its
- * estimated rarity (0–100, see calculate-rarity.ts). The estimate is kept
+ * calibrated rarity (0–100, see src/lib/rarity/rarity.ts). The estimate is kept
  * separate from the points, so the rarity model can change without touching
  * this table or the UI.
  */
@@ -77,4 +79,9 @@ export function classifyRarity(rarity: number): ScoringResult {
   let match = HITS[0];
   for (const hit of HITS) if (estimatedRarity >= hit.minRarity) match = hit;
   return { tier: match.tier, label: match.label, points: match.points, estimatedRarity };
+}
+
+/** Score for anything that isn't a valid answer: a Strikeout, 0 points. */
+export function noAnswerScore(): ScoreResult {
+  return { valid: false, ...strikeout(), method: "none", estimateNote: null };
 }

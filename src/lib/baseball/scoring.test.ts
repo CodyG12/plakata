@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_GAME_SCORE, ROUND_COUNT } from "@/data/questions";
+import { MAX_GAME_SCORE, ROUND_COUNT } from "@/lib/game/config";
 import { MAX_POINTS_PER_ROUND, SCORING_TIERS, classifyRarity, isScoringTier, strikeout, tierConfig } from "./scoring";
 
 const ALLOWED_POINTS = [0, 10, 25, 50, 75, 100];

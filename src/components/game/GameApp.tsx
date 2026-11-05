@@ -2,105 +2,170 @@
 
 import { RotateCcw } from "lucide-react";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
-import { QUESTIONS } from "@/data/questions";
-import { gameReducer, initialGameState, totalScore } from "@/lib/game/reducer";
-import type { AnswerResponse, GameState } from "@/types/game";
+import { api, ApiClientError } from "@/lib/game/api-client";
+import { LATENCY_GRACE_MS, type GameMode } from "@/lib/game/config";
+import { clientReducer, initialClientState } from "@/lib/game/reducer";
 import { FinalResults } from "./FinalResults";
 import { GameScreen } from "./GameScreen";
 import { LandingScreen } from "./LandingScreen";
 import { RoundResult } from "./RoundResult";
 
-// v2: saved state now includes per-round attempt counts.
-const STORAGE_KEY = "plakata:game:v3";
+/** Only the game id is stored; the server holds the state, so a refresh resumes exactly. */
+const STORAGE_KEY = "plakata:game-id:v4";
+const MODE_KEY = "plakata:mode";
 
-function loadSavedGame(): GameState | null {
+function storageGet(key: string): string | null {
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as GameState) : null;
+    return window.localStorage.getItem(key);
   } catch {
     return null;
   }
 }
 
-function saveGame(state: GameState) {
+function storageSet(key: string, value: string | null) {
   try {
-    if (state.status === "landing") window.localStorage.removeItem(STORAGE_KEY);
-    else window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    if (value === null) window.localStorage.removeItem(key);
+    else window.localStorage.setItem(key, value);
   } catch {
-    // Storage unavailable (private mode, quota) — the game still works without it.
+    // Storage unavailable (private mode, quota): the game still works, it just can't resume.
   }
 }
 
+const SUBMIT_ERRORS: Record<string, string> = {
+  rate_limited: "Too many guesses at once. Wait a second.",
+  not_open: "Answers open when the reading countdown ends.",
+};
+
+function messageOf(error: unknown, fallback: string): string {
+  if (error instanceof ApiClientError) return error.code === "network" || error.code === "http" ? fallback : error.message;
+  return fallback;
+}
+
 export function GameApp() {
-  const [state, dispatch] = useReducer(gameReducer, initialGameState);
+  const [state, dispatch] = useReducer(clientReducer, initialClientState);
   const [hydrated, setHydrated] = useState(false);
+  const [mode, setMode] = useState<GameMode>("daily");
   const inFlight = useRef(false);
   /** Text of the last submitted guess, re-sent when the user picks a namesake. */
   const lastInput = useRef("");
+  const game = state.game;
+  const active = game?.activeRound ?? null;
 
-  // Restore an in-progress game after mount (localStorage is browser-only).
+  // Resume a game in progress after a refresh: the server says where it stands.
   useEffect(() => {
-    const saved = loadSavedGame();
-    if (saved) dispatch({ type: "HYDRATE", state: saved, now: Date.now() });
-    setHydrated(true); // eslint-disable-line react-hooks/set-state-in-effect -- one-time mount flag
+    const savedMode = storageGet(MODE_KEY);
+    if (savedMode === "daily" || savedMode === "random") setMode(savedMode); // eslint-disable-line react-hooks/set-state-in-effect -- one-time restore
+    const gameId = storageGet(STORAGE_KEY);
+    if (!gameId) {
+      setHydrated(true);
+      return;
+    }
+    dispatch({ type: "REQUEST_STARTED" });
+    api
+      .getGame(gameId)
+      .then((view) => dispatch({ type: "GAME_LOADED", game: view, receivedAt: Date.now(), resume: true }))
+      .catch((error) => {
+        if (error instanceof ApiClientError && error.status === 404) storageSet(STORAGE_KEY, null);
+        dispatch({ type: "RESTART" });
+      })
+      .finally(() => setHydrated(true));
   }, []);
 
-  useEffect(() => {
-    if (hydrated) saveGame(state);
-  }, [state, hydrated]);
+  const start = useCallback(
+    async (chosen: GameMode) => {
+      if (state.busy) return;
+      setMode(chosen);
+      storageSet(MODE_KEY, chosen);
+      dispatch({ type: "REQUEST_STARTED" });
+      try {
+        const created = await api.createGame(chosen);
+        storageSet(STORAGE_KEY, created.gameId);
+        const view = await api.startRound(created.gameId);
+        dispatch({ type: "GAME_LOADED", game: view, receivedAt: Date.now() });
+      } catch (error) {
+        dispatch({ type: "REQUEST_FAILED", message: messageOf(error, "Couldn't start a game. Check your connection and try again.") });
+      }
+    },
+    [state.busy],
+  );
+
+  const next = useCallback(async () => {
+    if (!game || state.busy) return;
+    if (game.status === "complete") {
+      dispatch({ type: "SHOW_FINAL" });
+      return;
+    }
+    dispatch({ type: "REQUEST_STARTED" });
+    try {
+      dispatch({ type: "GAME_LOADED", game: await api.startRound(game.gameId), receivedAt: Date.now() });
+    } catch (error) {
+      dispatch({ type: "REQUEST_FAILED", message: messageOf(error, "Couldn't start the next round. Try again.") });
+    }
+  }, [game, state.busy]);
 
   const submit = useCallback(
     async (input: string, playerId?: string) => {
       // inFlight blocks rapid repeat submits before React re-renders with pending=true.
-      if (state.status !== "playing" || state.pending || inFlight.current)
-        return;
-      const now = Date.now();
-      if (state.deadline !== null && now >= state.deadline) return;
-      if (state.answerOpensAt !== null && now < state.answerOpensAt) return;
-      const roundIndex = state.roundIndex;
+      if (!game || !active || state.pending || state.timeUp || inFlight.current) return;
       inFlight.current = true;
       lastInput.current = input;
-      dispatch({ type: "SUBMIT_STARTED", roundIndex, now });
+      dispatch({ type: "SUBMIT_STARTED" });
       try {
-        const res = await fetch("/api/answers", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            questionId: QUESTIONS[roundIndex].id,
-            input,
-            playerId,
-          }),
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const response: AnswerResponse = await res.json();
-        dispatch({
-          type: "SUBMIT_RESOLVED",
-          roundIndex,
-          submittedText: input,
-          response,
-          now: Date.now(),
-        });
-      } catch {
-        dispatch({
-          type: "SUBMIT_FAILED",
-          roundIndex,
-          message: "Couldn't check that answer — connection problem.",
-        });
+        const res = await api.submit(game.gameId, active.roundId, { token: active.token, input, playerId });
+        const receivedAt = Date.now();
+        if (res.outcome.kind === "feedback") {
+          dispatch({ type: "SUBMIT_FEEDBACK", validation: res.outcome.validation, attempts: res.outcome.attempts, game: res.game, receivedAt });
+        } else {
+          dispatch({ type: "GAME_LOADED", game: res.game, receivedAt });
+        }
+      } catch (error) {
+        const code = error instanceof ApiClientError ? error.code : "network";
+        dispatch({ type: "REQUEST_FAILED", message: SUBMIT_ERRORS[code] ?? "Couldn't check that answer: connection problem." });
       } finally {
         inFlight.current = false;
       }
     },
-    [state.status, state.pending, state.roundIndex, state.deadline, state.answerOpensAt],
+    [game, active, state.pending, state.timeUp],
   );
 
-  const roundIndex = state.roundIndex;
-  const onExpire = useCallback(
-    () => dispatch({ type: "TIMER_EXPIRED", roundIndex }),
-    [roundIndex],
-  );
+  // When the local countdown ends, ask the server to settle the round. It decides,
+  // so we wait out the latency grace first and retry if it says the round is still open.
+  const roundId = active?.roundId;
+  const onExpire = useCallback(() => {
+    if (roundId) dispatch({ type: "TIME_UP", roundId });
+  }, [roundId]);
 
-  const total = totalScore(state);
-  const inGame = state.status === "playing" || state.status === "round-result";
+  useEffect(() => {
+    if (!state.timeUp || !game || !roundId || state.pending) return;
+    let cancelled = false;
+    let attempt = 0;
+    const settle = async () => {
+      try {
+        const view = await api.completeRound(game.gameId, roundId);
+        if (!cancelled) dispatch({ type: "GAME_LOADED", game: view, receivedAt: Date.now() });
+      } catch (error) {
+        if (cancelled) return;
+        attempt++;
+        const retryable = !(error instanceof ApiClientError) || error.code === "round_in_progress" || error.code === "network";
+        if (retryable && attempt < 8) timer = setTimeout(settle, 400 * attempt);
+        else dispatch({ type: "REQUEST_FAILED", message: messageOf(error, "Lost contact with the game server.") });
+      }
+    };
+    let timer = setTimeout(settle, LATENCY_GRACE_MS + 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [state.timeUp, state.pending, game, roundId]);
+
+  const restart = () => {
+    storageSet(STORAGE_KEY, null);
+    dispatch({ type: "RESTART" });
+  };
+
+  const total = game?.totalScore ?? 0;
+  const inGame = state.screen === "playing" || state.screen === "round-result";
+  const latest = game && game.rounds.length > 0 ? game.rounds[game.rounds.length - 1] : null;
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col px-4 py-6 sm:px-6 sm:py-10">
@@ -112,7 +177,7 @@ export function GameApp() {
         {inGame && (
           <button
             type="button"
-            onClick={() => dispatch({ type: "RESTART" })}
+            onClick={restart}
             className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm text-navy-300 transition hover:bg-navy-900 hover:text-cream-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cream-100"
           >
             <RotateCcw className="size-3.5" aria-hidden />
@@ -121,41 +186,51 @@ export function GameApp() {
         )}
       </nav>
 
-      <main
-        className={`flex flex-1 flex-col transition-opacity duration-200 ${hydrated ? "opacity-100" : "opacity-0"}`}
-      >
-        {state.status === "landing" && (
-          <LandingScreen
-            onStart={() => dispatch({ type: "START", now: Date.now() })}
-          />
+      <main className={`flex flex-1 flex-col transition-opacity duration-200 ${hydrated ? "opacity-100" : "opacity-0"}`}>
+        {state.screen === "landing" && (
+          <LandingScreen mode={mode} onModeChange={setMode} onStart={start} busy={state.busy} error={state.error} />
         )}
 
-        {state.status === "playing" && (
+        {state.screen === "playing" && game && active && (
           <GameScreen
-            key={state.roundIndex}
-            state={state}
+            key={active.roundId}
+            round={active}
+            rounds={game.rounds}
+            roundCount={game.roundCount}
             totalScore={total}
+            clockOffset={state.clockOffset}
+            pending={state.pending}
+            feedback={state.feedback}
+            attempts={state.attempts}
+            inputVersion={state.inputVersion}
+            timeUp={state.timeUp}
+            error={state.error}
             onExpire={onExpire}
             onSubmit={submit}
             onChoose={(playerId: string) => submit(lastInput.current, playerId)}
           />
         )}
 
-        {state.status === "round-result" && state.rounds[state.roundIndex] && (
+        {state.screen === "round-result" && game && latest && (
           <RoundResult
-            key={state.roundIndex}
-            round={state.rounds[state.roundIndex]}
-            roundIndex={state.roundIndex}
+            key={latest.position}
+            round={latest}
+            roundCount={game.roundCount}
             totalScore={total}
-            onNext={() => dispatch({ type: "NEXT_ROUND", now: Date.now() })}
+            isLast={game.status === "complete"}
+            busy={state.busy}
+            error={state.error}
+            onNext={next}
           />
         )}
 
-        {state.status === "game-complete" && (
+        {state.screen === "game-complete" && game && (
           <FinalResults
-            rounds={state.rounds}
+            rounds={game.rounds}
             totalScore={total}
-            onPlayAgain={() => dispatch({ type: "START", now: Date.now() })}
+            mode={game.mode}
+            dailyDay={game.dailyDay}
+            onPlayAgain={() => start(mode)}
           />
         )}
       </main>
@@ -170,7 +245,7 @@ export function GameApp() {
         >
           SABR Lahman Baseball Database
         </a>{" "}
-        (1871–2025), CC BY-SA 3.0. Rarity scores are provisional estimates.
+        (1871–2025), CC BY-SA 3.0. Rarity comes from fans&apos; answers, smoothed toward curated estimates.
       </footer>
     </div>
   );
