@@ -202,6 +202,8 @@ function toScore(r: RoundRow): ScoreResult {
     estimatedRarity: r.rarity === null ? null : Math.round(r.rarity),
     method: (r.scoreMethod ?? "community") as ScoreMethod,
     estimateNote: r.estimateNote,
+    overrideApplied: r.overrideApplied,
+    ...(r.overrideReason === "top_five_statistical" ? { overrideReason: r.overrideReason } : {}),
   };
 }
 
@@ -416,6 +418,8 @@ export async function submitAnswer(db: Db, caller: Caller, body: SubmitInput, no
         rarity: score.estimatedRarity,
         scoreMethod: score.method,
         estimateNote: score.estimateNote,
+        overrideApplied: score.overrideApplied,
+        overrideReason: score.overrideReason ?? null,
         completedAt: new Date(now),
       })
       .where(and(eq(rounds.id, round.id), eq(rounds.status, "active")))

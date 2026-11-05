@@ -63,6 +63,12 @@ export interface SnapshotDistribution {
   totalObservations: number;
   /** Always scores a Plákata (product decision: one hand-picked Plákata per question). */
   plakataPick: string;
+  /**
+   * Top-5 Bunt rule: these answers always score a Bunt, whatever their rarity.
+   * Frozen with the snapshot so past scores stay reproducible. Empty/absent for
+   * non-statistical questions or when the rule is turned off.
+   */
+  buntOverride?: string[];
   /** Stats shared by every eligible player not listed in `players` (uncurated, never named). */
   default: AnswerStat | null;
   players: Record<string, AnswerStat>;
@@ -77,6 +83,8 @@ export interface DistributionInput {
   counts?: ReadonlyMap<string, number>;
   alpha?: number;
   plakataPick: string;
+  /** Top-5 Bunt override ids (see src/lib/questions/ranking.ts). */
+  buntOverride?: readonly string[];
 }
 
 /**
@@ -118,6 +126,13 @@ export function buildDistribution(input: DistributionInput): SnapshotDistributio
   const eligible = [...new Set(input.eligible)].sort();
   if (eligible.length === 0) throw new Error("A question needs at least one eligible answer");
   if (!eligible.includes(input.plakataPick)) throw new Error(`Plákata pick ${input.plakataPick} is not eligible`);
+  const buntOverride = [...new Set(input.buntOverride ?? [])].sort();
+  for (const id of buntOverride) {
+    if (!eligible.includes(id)) throw new Error(`Top-5 Bunt answer ${id} is not eligible`);
+  }
+  if (buntOverride.includes(input.plakataPick)) {
+    throw new Error(`Plákata pick ${input.plakataPick} is a top-5 statistical leader; pick a deeper cut`);
+  }
 
   const weights = priorWeights(eligible, input.curated);
   const totalWeight = eligible.reduce((sum, id) => sum + weights.get(id)!, 0);
@@ -189,6 +204,7 @@ export function buildDistribution(input: DistributionInput): SnapshotDistributio
     eligibleCount: eligible.length,
     totalObservations: N,
     plakataPick: input.plakataPick,
+    ...(buntOverride.length > 0 ? { buntOverride } : {}),
     default: fallback,
     players,
   };
@@ -208,15 +224,37 @@ export function statFor(dist: SnapshotDistribution, playerId: string, isEligible
 }
 
 /**
- * Scores an eligible answer from a frozen snapshot. The hand-picked answer is
- * always a Plákata. Every other answer gets its tier from calibrated community
- * rarity, capped at a Triple.
+ * Scores an eligible answer from a frozen snapshot, in priority order:
+ *  1. Top-5 statistical leaders always score a Bunt (the override replaces rarity).
+ *  2. The hand-picked answer always scores a Plákata.
+ *  3. Everyone else gets their tier from calibrated community rarity, capped at a Triple.
+ * The override changes points only: the answer is still a community observation.
  */
 export function scoreFromSnapshot(dist: SnapshotDistribution, playerId: string, isEligible: boolean): ScoreResult {
   const stat = statFor(dist, playerId, isEligible);
   if (!stat) throw new Error(`${playerId} is not an eligible answer for this snapshot`);
+  if (dist.buntOverride?.includes(playerId)) {
+    const { tier, label, points } = tierConfig("bunt");
+    return {
+      valid: true,
+      tier,
+      label,
+      points,
+      estimatedRarity: Math.round(stat.rarity),
+      method: "top_five",
+      estimateNote: "A top-five leader in this stat: always a Bunt",
+      overrideApplied: true,
+      overrideReason: "top_five_statistical",
+    };
+  }
   if (playerId === dist.plakataPick) {
-    return { valid: true, ...classifyRarity(100), method: "plakata", estimateNote: "This question's hand-picked deep cut" };
+    return {
+      valid: true,
+      ...classifyRarity(100),
+      method: "plakata",
+      estimateNote: "This question's hand-picked deep cut",
+      overrideApplied: false,
+    };
   }
   const percent = Math.round(stat.rarity);
   const note =
@@ -228,6 +266,7 @@ export function scoreFromSnapshot(dist: SnapshotDistribution, playerId: string, 
     ...classifyRarity(Math.min(stat.rarity, NON_PICK_RARITY_CAP)),
     method: "community",
     estimateNote: note,
+    overrideApplied: false,
   };
 }
 

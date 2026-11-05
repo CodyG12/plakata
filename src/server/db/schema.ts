@@ -56,6 +56,8 @@ export const players = pgTable("players", {
 /** A stable question identity. Its wording and rules live in versions. */
 export const questions = pgTable("questions", {
   slug: text("slug").primaryKey(),
+  /** "bank" = src/data/question-bank.ts (managed by questions:sync); "custom" = the admin Question Builder. */
+  source: text("source", { enum: ["bank", "custom"] }).notNull().default("bank"),
   createdAt: ts("created_at").notNull().defaultNow(),
 });
 
@@ -76,6 +78,10 @@ export const questionVersions = pgTable(
     contentHash: text("content_hash").notNull(),
     dataRelease: text("data_release").notNull(),
     eligibleCount: integer("eligible_count").notNull(),
+    /** Top-5 Bunt rule enabled for this version (statistical questions only). */
+    topFiveOverride: boolean("top_five_override").notNull().default(false),
+    /** The validation report the version was published with (custom questions). */
+    validation: jsonb("validation"),
     /** Only one version per slug is active; disabled questions have none active. */
     active: boolean("active").notNull().default(true),
     createdAt: ts("created_at").notNull().defaultNow(),
@@ -98,6 +104,53 @@ export const questionEligibility = pgTable(
       .references(() => players.id),
   },
   (t) => [primaryKey({ columns: [t.questionVersionId, t.playerId] })],
+);
+
+/**
+ * Statistical rankings for a question version (Top-5 Bunt rule). Computed once from
+ * the version's eligibility set and data release, never edited afterwards.
+ */
+export const statRankings = pgTable(
+  "stat_rankings",
+  {
+    questionVersionId: integer("question_version_id")
+      .notNull()
+      .references(() => questionVersions.id),
+    playerId: text("player_id")
+      .notNull()
+      .references(() => players.id),
+    value: integer("value").notNull(),
+    /** Competition rank ("1224"): ties share a rank. */
+    rank: integer("rank").notNull(),
+    buntOverride: boolean("bunt_override").notNull(),
+    dataRelease: text("data_release").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.questionVersionId, t.playerId] }), index("stat_rankings_rank").on(t.questionVersionId, t.rank)],
+);
+
+/**
+ * Custom questions from the admin Question Builder, before and after publishing.
+ * Editable; publishing turns the current content into an immutable question version.
+ */
+export const questionDrafts = pgTable(
+  "question_drafts",
+  {
+    id: uuid("id").primaryKey(),
+    slug: text("slug").notNull(),
+    prompt: text("prompt").notNull(),
+    criteria: jsonb("criteria").$type<QuestionCriteria>().notNull(),
+    plakataPick: text("plakata_pick"),
+    topFiveOverride: boolean("top_five_override").notNull().default(true),
+    status: text("status", { enum: ["draft", "validated", "published", "disabled"] }).notNull().default("draft"),
+    /** The latest validation report (see admin-questions.ts). */
+    validation: jsonb("validation"),
+    /** Hash of the content the report validated; editing the draft invalidates it. */
+    validatedHash: text("validated_hash"),
+    publishedVersionId: integer("published_version_id").references(() => questionVersions.id),
+    createdAt: ts("created_at").notNull().defaultNow(),
+    updatedAt: ts("updated_at").notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("question_drafts_slug").on(t.slug)],
 );
 
 /** A frozen scoring distribution. Rounds reference the snapshot they were scored with. */
@@ -201,6 +254,9 @@ export const rounds = pgTable(
     points: integer("points"),
     rarity: doublePrecision("rarity"),
     scoreMethod: text("score_method"),
+    /** A rule replaced the rarity tier (Top-5 Bunt). Kept so history stays explainable. */
+    overrideApplied: boolean("override_applied").notNull().default(false),
+    overrideReason: text("override_reason"),
     estimateNote: text("estimate_note"),
     attempts: integer("attempts").notNull().default(0),
     completedAt: ts("completed_at"),

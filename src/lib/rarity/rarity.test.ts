@@ -195,6 +195,48 @@ describe("tier mapping", () => {
   });
 });
 
+describe("Top-5 Bunt override", () => {
+  const eligible = pool(100);
+  // p0000 is the RAREST answer (never named) but a top-five leader; p0090 is named constantly.
+  const counts = new Map(eligible.slice(1, 95).map((id, i) => [id, 5 + i]));
+  const d = buildDistribution({ eligible, counts, alpha: 1, plakataPick: "p0099", buntOverride: ["p0000", "p0090"] });
+
+  it("a top-five leader scores a Bunt even when the community says it's rare", () => {
+    expect(statFor(d, "p0000", true)!.rarity).toBeGreaterThan(80);
+    expect(scoreFromSnapshot(d, "p0000", true)).toMatchObject({
+      tier: "bunt",
+      points: 10,
+      method: "top_five",
+      overrideApplied: true,
+      overrideReason: "top_five_statistical",
+    });
+  });
+
+  it("players outside the top five keep their rarity-based tier", () => {
+    expect(scoreFromSnapshot(d, "p0001", true)).toMatchObject({ overrideApplied: false, method: "community" });
+    expect(scoreFromSnapshot(d, "p0001", true).tier).not.toBe("bunt");
+    expect(scoreFromSnapshot(d, "p0099", true)).toMatchObject({ tier: "plakata", overrideApplied: false });
+  });
+
+  it("the override changes points, not the answer statistics", () => {
+    // p0090's observations still shape the distribution exactly as without the override.
+    const plain = buildDistribution({ eligible, counts, alpha: 1, plakataPick: "p0099" });
+    expect(statFor(d, "p0090", true)).toEqual(statFor(plain, "p0090", true));
+    expect(d.totalObservations).toBe(plain.totalObservations);
+  });
+
+  it("is frozen in the snapshot and refuses a pick that is also a leader", () => {
+    expect(d.buntOverride).toEqual(["p0000", "p0090"]);
+    expect(JSON.parse(JSON.stringify(d)).buntOverride).toEqual(["p0000", "p0090"]);
+    expect(() => buildDistribution({ eligible, plakataPick: "p0000", buntOverride: ["p0000"] })).toThrow(/top-5/);
+    expect(() => buildDistribution({ eligible, plakataPick: "p0099", buntOverride: ["nope"] })).toThrow(/not eligible/);
+  });
+
+  it("snapshots without the rule carry no override list", () => {
+    expect(buildDistribution({ eligible, plakataPick: "p0099" }).buntOverride).toBeUndefined();
+  });
+});
+
 describe("curated priors for the original seven (migrated from v1)", () => {
   const index = getPlayerIndex();
   const original = QUESTION_BANK.filter((q) => q.slug in RARITY_ESTIMATES);

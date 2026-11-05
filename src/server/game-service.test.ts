@@ -12,7 +12,7 @@ import { categoryOf } from "@/lib/questions/selection";
 import { curatedTiersFor } from "@/lib/rarity/rarity";
 import type { GameView } from "@/types/api";
 import type { Db } from "./db/client";
-import { games, rarityObservations, rounds, submissions } from "./db/schema";
+import { games, rarityObservations, rounds, statRankings, submissions } from "./db/schema";
 import {
   completeRound,
   createGame,
@@ -23,7 +23,7 @@ import {
   submitAnswer,
   type Caller,
 } from "./game-service";
-import { activeSnapshotIds, getEligibility, getVersions, listActiveVersions, refreshSnapshots } from "./question-store";
+import { activeSnapshotIds, getEligibility, getSnapshot, getVersions, listActiveVersions, refreshSnapshots } from "./question-store";
 import { createTestDb, ORIGINAL_SLUGS, testBank } from "./test-support";
 import { signRoundToken, verifyRoundToken } from "./tokens";
 
@@ -380,5 +380,68 @@ describe("frozen scoring snapshots", () => {
     expect(new Set(qa).size).toBe(7);
     const versions = await getVersions(db, qa);
     expect(new Set(qa.map((id) => categoryOf(versions.get(id)!.criteria.type))).size).toBe(7);
+  });
+});
+
+describe("Top-5 Bunt rule in a real game", () => {
+  it("a top-five leader scores a Bunt with the override recorded, and still counts as an observation", async () => {
+    const caller = newCaller();
+    const view = await fixedGame(caller); // round 1: 300 career HR
+    const res = await submit(caller, view, "Barry Bonds", T0 + OPEN + 1000);
+    expect(res.game.rounds[0].score).toMatchObject({
+      tier: "bunt",
+      points: 10,
+      method: "top_five",
+      overrideApplied: true,
+      overrideReason: "top_five_statistical",
+    });
+    const [row] = await db.select().from(rounds).where(eq(rounds.id, view.activeRound!.roundId));
+    expect(row).toMatchObject({ tier: "bunt", points: 10, overrideApplied: true, overrideReason: "top_five_statistical" });
+    const obs = await db.select().from(rarityObservations).where(eq(rarityObservations.roundId, row.id));
+    expect(obs.map((o) => o.playerId)).toEqual(["bondsba01"]);
+  });
+
+  it("rankings are stored per version with the data release, and the snapshot freezes the Bunt list", async () => {
+    const versions = await listActiveVersions(db);
+    const hr = versions.find((v) => v.slug === "hr-300")!;
+    expect(hr.topFiveOverride).toBe(true);
+    const top = await db.select().from(statRankings).where(eq(statRankings.questionVersionId, hr.id));
+    const bunts = top.filter((r) => r.buntOverride).sort((a, b) => a.rank - b.rank);
+    expect(bunts.map((r) => [r.playerId, r.value, r.rank])).toEqual([
+      ["bondsba01", 762, 1],
+      ["aaronha01", 755, 2],
+      ["ruthba01", 714, 3],
+      ["pujolal01", 703, 4],
+      ["rodrial01", 696, 5],
+    ]);
+    expect(new Set(top.map((r) => r.dataRelease)).size).toBe(1);
+    const snaps = await activeSnapshotIds(db, [hr.id]);
+    expect((await getSnapshot(db, snaps.get(hr.id)!)).distribution.buntOverride).toEqual(
+      ["aaronha01", "bondsba01", "pujolal01", "rodrial01", "ruthba01"],
+    );
+  });
+
+  it("non-statistical questions have no rankings and no override", async () => {
+    const versions = await listActiveVersions(db);
+    for (const slug of ["yankees", "mariners", "hall-of-fame", "born-japan"]) {
+      const v = versions.find((x) => x.slug === slug)!;
+      expect(v.topFiveOverride, slug).toBe(false);
+      expect(await db.select().from(statRankings).where(eq(statRankings.questionVersionId, v.id)), slug).toHaveLength(0);
+    }
+    const caller = newCaller();
+    let view = await fixedGame(caller, T0 + 7 * 3_600_000);
+    view = (await submit(caller, view, "Richie Sexson", T0 + 7 * 3_600_000 + OPEN + 1000)).game;
+    view = await startNextRound(db, caller, view.gameId, T0 + 7 * 3_600_000 + 60_000);
+    view = (await submit(caller, view, "Barry Bonds", T0 + 7 * 3_600_000 + 60_000 + OPEN + 1000)).game; // MVP: no override
+    expect(view.rounds[1].score.overrideApplied).toBe(false);
+  });
+
+  it("a refresh keeps the version's frozen leaders", async () => {
+    const hr = (await listActiveVersions(db)).find((v) => v.slug === "hr-300")!;
+    await refreshSnapshots(db, { bank: testBank(), now: new Date(T0 + 9_000_000) });
+    const snaps = await activeSnapshotIds(db, [hr.id]);
+    const dist = (await getSnapshot(db, snaps.get(hr.id)!)).distribution;
+    expect(dist.buntOverride).toHaveLength(5);
+    expect(dist.totalObservations).toBeGreaterThan(0);
   });
 });

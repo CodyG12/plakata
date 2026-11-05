@@ -22,6 +22,7 @@ const hit = (i: number, name: string, rarity: number): RoundResultView => {
     ...classifyRarity(rarity),
     method: rarity >= 80 ? "plakata" : "community",
     estimateNote: "Rarer than 40% of answers",
+    overrideApplied: false,
   };
   return { position: i, prompt: prompt(i), status: "answered", acceptedName: name, explanation: "Fits.", score, timedOut: false, attempts: 0 };
 };

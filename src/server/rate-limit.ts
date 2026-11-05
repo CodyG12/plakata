@@ -19,6 +19,8 @@ export const LIMITS = {
   createGameIp: { name: "game:ip", max: 120, windowMs: 60 * 60 * 1000 },
   submitParticipant: { name: "submit:participant", max: 25, windowMs: 10 * 1000 },
   submitIp: { name: "submit:ip", max: 120, windowMs: 10 * 1000 },
+  /** Admin login attempts per IP hash: slows password guessing to a crawl. */
+  adminLoginIp: { name: "admin-login:ip", max: 10, windowMs: 15 * 60 * 1000 },
 } as const satisfies Record<string, Limit>;
 
 /**

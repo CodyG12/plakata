@@ -11,6 +11,7 @@ import { PLAYER_ALIASES } from "@/data/aliases";
 import { QUESTION_BANK, type QuestionDefinition } from "@/data/question-bank";
 import { checkCriteria } from "@/lib/baseball/criteria";
 import type { PlayerIndex } from "@/lib/baseball/dataset";
+import { rankingConfigFor, rankPlayers, topFiveIds } from "@/lib/questions/ranking";
 import { categoryOf } from "@/lib/questions/selection";
 import { buildDistribution, curatedTiersFor, DEFAULT_ALPHA, type SnapshotDistribution } from "@/lib/rarity/rarity";
 import { questionCriteriaSchema, type QuestionCriteria } from "@/types/baseball";
@@ -23,6 +24,7 @@ import {
   rarityObservations,
   rarityStats,
   scoringSnapshots,
+  statRankings,
 } from "./db/schema";
 
 export interface QuestionVersionRow {
@@ -34,6 +36,7 @@ export interface QuestionVersionRow {
   criteria: QuestionCriteria;
   eligibleCount: number;
   active: boolean;
+  topFiveOverride: boolean;
 }
 
 export interface SnapshotRow {
@@ -67,8 +70,22 @@ export function eligiblePlayerIds(criteria: QuestionCriteria, index: PlayerIndex
     .sort();
 }
 
-function contentHash(def: Pick<QuestionDefinition, "prompt" | "criteria">, dataRelease: string): string {
-  return createHash("sha256").update(JSON.stringify([def.prompt, def.criteria, dataRelease])).digest("hex");
+/**
+ * What makes a version: prompt, criteria, data release, and (only when on) the
+ * Top-5 rule, so turning the rule on or off is a new version but leaves the hash
+ * of non-statistical questions unchanged.
+ */
+export function contentHash(prompt: string, criteria: QuestionCriteria, dataRelease: string, topFiveOverride: boolean): string {
+  const parts: unknown[] = [prompt, criteria, dataRelease];
+  if (topFiveOverride) parts.push("top-five-bunt");
+  return createHash("sha256").update(JSON.stringify(parts)).digest("hex");
+}
+
+/** The Top-5 rule is on by default for statistical questions and impossible for the rest. */
+export function effectiveTopFive(criteria: QuestionCriteria, requested: boolean | undefined): boolean {
+  const supported = rankingConfigFor(criteria) !== null;
+  if (requested && !supported) throw new Error("The Top-5 Bunt rule only applies to statistical questions");
+  return requested ?? supported;
 }
 
 async function insertChunked<T>(rows: T[], size: number, insert: (chunk: T[]) => Promise<unknown>): Promise<void> {
@@ -115,10 +132,103 @@ export interface SyncReport {
   eligibleCount: number;
 }
 
+export interface NewVersionInput {
+  slug: string;
+  source: "bank" | "custom";
+  prompt: string;
+  criteria: QuestionCriteria;
+  plakataPick: string;
+  topFiveOverride: boolean;
+  active: boolean;
+  validation?: unknown;
+}
+
+export interface NewVersionResult {
+  versionId: number;
+  version: number;
+  eligibleCount: number;
+  buntOverride: string[];
+}
+
+/**
+ * Writes an immutable question version: eligibility set, statistical rankings
+ * (Top-5 rule) and a zero-observation scoring snapshot, and makes it the slug's
+ * active version (if `active`). Shared by the bank sync and the Question Builder,
+ * so both publish questions exactly the same way. Run inside a transaction.
+ */
+export async function createQuestionVersion(
+  tx: Executor,
+  input: NewVersionInput,
+  index: PlayerIndex,
+  now: Date,
+): Promise<NewVersionResult> {
+  const criteria = questionCriteriaSchema.parse(input.criteria);
+  const eligible = eligiblePlayerIds(criteria, index);
+  if (eligible.length === 0) throw new Error(`${input.slug}: no eligible players. Check the criteria`);
+  if (!eligible.includes(input.plakataPick)) throw new Error(`${input.slug}: Plákata pick ${input.plakataPick} is not eligible`);
+
+  const ranking = input.topFiveOverride ? rankingConfigFor(criteria) : null;
+  if (input.topFiveOverride && !ranking) throw new Error(`${input.slug}: the Top-5 rule needs a statistical question`);
+  const ranked = ranking ? rankPlayers(eligible.map((id) => index.getById(id)!), ranking) : [];
+  const buntOverride = topFiveIds(ranked);
+  if (buntOverride.includes(input.plakataPick)) {
+    throw new Error(`${input.slug}: Plákata pick ${input.plakataPick} is a top-5 leader; it would always score a Bunt`);
+  }
+
+  const [latest] = await tx
+    .select({ version: questionVersions.version })
+    .from(questionVersions)
+    .where(eq(questionVersions.slug, input.slug))
+    .orderBy(desc(questionVersions.version))
+    .limit(1);
+  const version = (latest?.version ?? 0) + 1;
+
+  await tx.insert(questions).values({ slug: input.slug, source: input.source }).onConflictDoNothing();
+  if (input.active) {
+    await tx.update(questionVersions).set({ active: false }).where(eq(questionVersions.slug, input.slug));
+  }
+  const [row] = await tx
+    .insert(questionVersions)
+    .values({
+      slug: input.slug,
+      version,
+      prompt: input.prompt,
+      category: categoryOf(criteria.type),
+      criteriaType: criteria.type,
+      criteria,
+      contentHash: contentHash(input.prompt, criteria, index.meta.release, input.topFiveOverride),
+      dataRelease: index.meta.release,
+      eligibleCount: eligible.length,
+      topFiveOverride: input.topFiveOverride,
+      validation: input.validation ?? null,
+      active: input.active,
+    })
+    .returning({ id: questionVersions.id });
+  await insertChunked(eligible, 2000, (chunk) =>
+    tx.insert(questionEligibility).values(chunk.map((playerId) => ({ questionVersionId: row.id, playerId }))),
+  );
+  await insertChunked(ranked, 1000, (chunk) =>
+    tx.insert(statRankings).values(
+      chunk.map((r) => ({
+        questionVersionId: row.id,
+        playerId: r.playerId,
+        value: r.value,
+        rank: r.rank,
+        buntOverride: r.buntOverride,
+        dataRelease: index.meta.release,
+      })),
+    ),
+  );
+  await writeSnapshot(tx, row.id, input.slug, eligible, input.plakataPick, new Map(), DEFAULT_ALPHA, now, buntOverride);
+  versionCache.clear(); // older versions of this slug just changed `active`
+  return { versionId: row.id, version, eligibleCount: eligible.length, buntOverride };
+}
+
 /**
  * Makes the database match the question bank: new or changed questions become new
- * versions (with eligibility sets and a zero-observation snapshot), and removed or
- * `active: false` questions are disabled. Old versions are never edited.
+ * versions (with eligibility sets, rankings and a zero-observation snapshot), and
+ * removed or `active: false` bank questions are disabled. Custom questions from the
+ * Question Builder are left alone. Old versions are never edited.
  */
 export async function syncQuestionBank(
   db: Db,
@@ -132,8 +242,12 @@ export async function syncQuestionBank(
     if (slugs.has(def.slug)) throw new Error(`Duplicate question slug: ${def.slug}`);
     slugs.add(def.slug);
     const criteria = questionCriteriaSchema.parse(def.criteria);
-    const hash = contentHash(def, index.meta.release);
+    const topFive = effectiveTopFive(criteria, def.topFiveBunt);
+    const hash = contentHash(def.prompt, criteria, index.meta.release, topFive);
     const wantActive = def.active !== false;
+
+    const [owner] = await db.select({ source: questions.source }).from(questions).where(eq(questions.slug, def.slug));
+    if (owner && owner.source !== "bank") throw new Error(`${def.slug}: that slug belongs to a custom question`);
 
     const [latest] = await db
       .select()
@@ -156,44 +270,24 @@ export async function syncQuestionBank(
       continue;
     }
 
-    const eligible = eligiblePlayerIds(criteria, index);
-    if (eligible.length === 0) throw new Error(`${def.slug}: no eligible players. Check the criteria`);
-    if (!eligible.includes(def.plakataPick)) throw new Error(`${def.slug}: Plákata pick ${def.plakataPick} is not eligible`);
-    const version = (latest?.version ?? 0) + 1;
-
-    await db.transaction(async (tx) => {
-      await tx.insert(questions).values({ slug: def.slug }).onConflictDoNothing();
-      await tx.update(questionVersions).set({ active: false }).where(eq(questionVersions.slug, def.slug));
-      const [row] = await tx
-        .insert(questionVersions)
-        .values({
-          slug: def.slug,
-          version,
-          prompt: def.prompt,
-          category: categoryOf(criteria.type),
-          criteriaType: criteria.type,
-          criteria,
-          contentHash: hash,
-          dataRelease: index.meta.release,
-          eligibleCount: eligible.length,
-          active: wantActive,
-        })
-        .returning({ id: questionVersions.id });
-      await insertChunked(eligible, 2000, (chunk) =>
-        tx.insert(questionEligibility).values(chunk.map((playerId) => ({ questionVersionId: row.id, playerId }))),
-      );
-      await writeSnapshot(tx, row.id, def.slug, eligible, def.plakataPick, new Map(), DEFAULT_ALPHA, now);
-    });
-    if (latest) versionCache.delete(latest.id);
-    reports.push({ slug: def.slug, action: "created", version, eligibleCount: eligible.length });
+    const created = await db.transaction((tx) =>
+      createQuestionVersion(
+        tx,
+        { slug: def.slug, source: "bank", prompt: def.prompt, criteria, plakataPick: def.plakataPick, topFiveOverride: topFive, active: wantActive },
+        index,
+        now,
+      ),
+    );
+    reports.push({ slug: def.slug, action: "created", version: created.version, eligibleCount: created.eligibleCount });
   }
 
-  // Questions removed from the bank are disabled, never deleted (old rounds point at them).
-  const removed = await db
+  // Bank questions removed from the file are disabled, never deleted (old rounds point at them).
+  const active = await db
     .select({ id: questionVersions.id, slug: questionVersions.slug, version: questionVersions.version, n: questionVersions.eligibleCount })
     .from(questionVersions)
-    .where(eq(questionVersions.active, true));
-  for (const row of removed) {
+    .innerJoin(questions, eq(questions.slug, questionVersions.slug))
+    .where(and(eq(questionVersions.active, true), eq(questions.source, "bank")));
+  for (const row of active) {
     if (slugs.has(row.slug)) continue;
     await db.update(questionVersions).set({ active: false }).where(eq(questionVersions.id, row.id));
     versionCache.delete(row.id);
@@ -219,6 +313,7 @@ function toVersionRow(r: typeof questionVersions.$inferSelect): QuestionVersionR
     criteria: r.criteria,
     eligibleCount: r.eligibleCount,
     active: r.active,
+    topFiveOverride: r.topFiveOverride,
   };
 }
 
@@ -292,8 +387,9 @@ async function writeSnapshot(
   counts: ReadonlyMap<string, number>,
   alpha: number,
   now: Date,
+  buntOverride: readonly string[] = [],
 ): Promise<number> {
-  const distribution = buildDistribution({ eligible, curated: curatedTiersFor(slug), counts, alpha, plakataPick });
+  const distribution = buildDistribution({ eligible, curated: curatedTiersFor(slug), counts, alpha, plakataPick, buntOverride });
   const [snap] = await db
     .insert(scoringSnapshots)
     .values({
@@ -369,9 +465,11 @@ export async function refreshSnapshots(
       .where(eq(rarityObservations.questionVersionId, version.id))
       .groupBy(rarityObservations.playerId);
     const counts = new Map(countRows.map((r) => [r.playerId, Number(r.n)]));
-    const pick = bank.get(version.slug)?.plakataPick ?? (await previousPick(db, version.id));
+    const [owner] = await db.select({ source: questions.source }).from(questions).where(eq(questions.slug, version.slug));
+    const pick = (owner?.source === "bank" ? bank.get(version.slug)?.plakataPick : undefined) ?? (await previousPick(db, version.id));
+    const buntOverride = version.topFiveOverride ? await buntOverrideIds(db, version.id) : [];
     const snapshotId = await db.transaction((tx) =>
-      writeSnapshot(tx, version.id, version.slug, eligible, pick, counts, alpha, now),
+      writeSnapshot(tx, version.id, version.slug, eligible, pick, counts, alpha, now, buntOverride),
     );
     reports.push({
       slug: version.slug,
@@ -381,6 +479,15 @@ export async function refreshSnapshots(
     });
   }
   return reports;
+}
+
+/** The frozen Top-5 Bunt answers for a version (rank ≤ 5, ties included). */
+export async function buntOverrideIds(db: Executor, versionId: number): Promise<string[]> {
+  const rows = await db
+    .select({ playerId: statRankings.playerId })
+    .from(statRankings)
+    .where(and(eq(statRankings.questionVersionId, versionId), eq(statRankings.buntOverride, true)));
+  return rows.map((r) => r.playerId).sort();
 }
 
 async function previousPick(db: Executor, versionId: number): Promise<string> {

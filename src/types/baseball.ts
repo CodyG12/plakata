@@ -164,10 +164,13 @@ export interface ValidationResult {
 }
 
 /**
- * Where a round's tier came from: "plakata" = the question's hand-picked Plákata,
- * "community" = a frozen rarity snapshot (curated prior + community answers), "none" = Strikeout.
+ * Where a round's tier came from: "top_five" = Top-5 statistical Bunt override,
+ * "plakata" = the question's hand-picked Plákata, "community" = a frozen rarity
+ * snapshot (curated prior + community answers), "none" = Strikeout.
  */
-export type ScoreMethod = "plakata" | "community" | "none";
+export type ScoreMethod = "top_five" | "plakata" | "community" | "none";
+
+export type OverrideReason = "top_five_statistical";
 
 /** A round's score: its baseball tier and fixed points, plus where the rarity came from. */
 export interface ScoreResult extends ScoringResult {
@@ -175,4 +178,7 @@ export interface ScoreResult extends ScoringResult {
   method: ScoreMethod;
   /** Short note explaining the rarity, e.g. "Rarer than 64% of answers"; null for a Strikeout. */
   estimateNote: string | null;
+  /** True when a rule replaced the rarity-based tier (the Top-5 Bunt). */
+  overrideApplied: boolean;
+  overrideReason?: OverrideReason;
 }

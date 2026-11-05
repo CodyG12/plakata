@@ -26,6 +26,12 @@ export interface QuestionDefinition {
   prompt: string;
   criteria: QuestionCriteria;
   plakataPick: string;
+  /**
+   * Top-5 Bunt rule: the five statistical leaders among eligible players always score
+   * a Bunt. Defaults to on for statistical questions; set false to turn it off. Not
+   * allowed on non-statistical questions.
+   */
+  topFiveBunt?: boolean;
   /** Disabled questions stay in the database (history) but are never selected. */
   active?: boolean;
 }

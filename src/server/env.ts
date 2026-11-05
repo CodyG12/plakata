@@ -22,6 +22,6 @@ function rootSecret(): string {
 }
 
 /** A per-purpose key derived from the root secret (HMAC-SHA256), so one leak can't forge another. */
-export function deriveKey(purpose: "round-token" | "participant-cookie" | "ip-hash"): Buffer {
+export function deriveKey(purpose: "round-token" | "participant-cookie" | "ip-hash" | "admin-session"): Buffer {
   return createHmac("sha256", rootSecret()).update(`plakata:${purpose}`).digest();
 }

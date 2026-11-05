@@ -48,6 +48,7 @@ See `.env.example`.
 | `CRON_SECRET`       | –        | recommended  | Enables the daily `/api/cron/refresh-rarity` job                  |
 | `RARITY_ALPHA`      | –        | optional     | Prior strength α (default 100)                                   |
 | `DATABASE_POOL_MAX` | –        | optional     | Connections per instance (default 5)                             |
+| `ADMIN_PASSWORD`    | optional | optional     | 12+ chars. Turns on the Question Builder at `/admin/questions`; unset = off |
 
 Credentials are only read on the server. Nothing in `src/server` is imported by client components, and the
 browser bundle contains no player data, eligibility sets or secrets.
@@ -144,6 +145,12 @@ src/
 | `submissions`         | Every attempt: raw text, outcome (valid, ineligible, ambiguous, unrecognized, suggestion, choose, not_open, expired, closed), accepted flag, server time |
 | `rarity_observations` | The ONLY input to rarity: one row per participant per question version        |
 | `rate_limits`         | Fixed-window counters                                                         |
+| `stat_rankings`       | Per question version: every eligible player's stat value, competition rank and Top-5 Bunt flag, with the data release |
+| `question_drafts`     | Question Builder drafts: prompt, criteria, pick, Top-5 setting, status, latest validation report, published version |
+
+Migration `0001` added `stat_rankings`, `question_drafts`, `questions.source` (`bank` / `custom`),
+`question_versions.top_five_override` and `.validation`, and `rounds.override_applied` / `.override_reason`.
+It's purely additive (new tables, new columns with defaults), so it applies safely to a live database.
 
 Constraints that enforce the rules: `rounds(game_id, position)` unique; `rounds.points` must be one of
 0/10/25/50/75/100; `rarity_observations(participant_id, question_version_id)` unique and `(round_id)`
@@ -366,6 +373,32 @@ small elite pools where that rule lands on a star (e.g. McGwire for 500 HR). Tho
 cuts and are marked in the file. All 43 picks were reviewed on 2026-11-05. Tests enforce that every pick is
 eligible, single-use and retired.
 
+### Top-5 Bunt rule
+
+For a **statistical** question, the five best performers in that statistic always score a **Bunt (10)**,
+however rare the community thinks they are. On "300 career home runs" that's Bonds (762), Aaron (755),
+Ruth (714), Pujols (703) and A-Rod (696), computed from the data, never hard-coded
+(`src/lib/questions/ranking.ts`).
+
+- **Metric:** the question's own stat. Career questions rank by career total; single-season questions rank
+  distinct players by their **best season** (so "40 HR in a season" uses Bonds' 73, not career totals).
+- **Population:** only the question's eligible players, so any filter in the criteria is respected.
+- **Ties:** standard competition ranking ("1224"). Everyone ranked ≤ 5 gets the override, so a tie at fifth
+  includes every tied player.
+- **Direction:** configurable per stat. Every stat in the dataset is a counting stat (higher is better);
+  a lower-is-better rate stat (ERA, WHIP) must declare a qualification minimum before it can be ranked.
+  None are offered yet because the dataset doesn't carry innings or at-bats.
+- **Scope:** only `stat_threshold` questions. Team, position, era, award, Hall of Fame, All-Star, World
+  Series and birthplace questions never get it. It's on by default and can be turned off per question
+  (`topFiveBunt: false` in the bank, or the checkbox in the Builder).
+- **Scoring order:** valid answer → Top-5 leader? Bunt → hand-picked Plákata? 100 → community rarity
+  (capped at Triple). A pick can never be a top-five leader (sync and the Builder refuse it).
+- **It changes points, not data:** a leader's answer is still a community observation and still shapes
+  the rarity distribution. The round records `overrideApplied` / `overrideReason: "top_five_statistical"`.
+- **Reproducible:** rankings are stored per question version (with the data release) and the Bunt list is
+  frozen in every scoring snapshot. Turning the rule on or off makes a new version; a data update makes
+  new versions too, so finished games keep the scores they were given.
+
 ### How rarity is calculated
 
 All of it is pure, deterministic code in `src/lib/rarity/rarity.ts`.
@@ -408,6 +441,52 @@ every curated tier lands within one tier of v1, keeps its order, and the pick is
 New questions start uniform, so every non-pick answer is a Double until fans play them. The curated
 estimates are a prior only; nothing in the database pretends they are observations.
 
+## Question Builder
+
+A protected admin page for writing new questions, checking their answers and publishing them, with no code
+or SQL: **`/admin/questions`**.
+
+**Access.** Set `ADMIN_PASSWORD` (12+ characters) on the server. Without it the Builder and every admin
+API answer 503. Signing in checks the password on the server (constant-time, rate-limited to 10 tries per
+15 minutes per IP) and sets an HMAC-signed, HttpOnly, SameSite=Strict session cookie that lasts 8 hours.
+Changing the password signs everyone out. Every `/api/admin/*` route checks the session on the server;
+writes must be JSON, which blocks cross-site form posts. Locally, `.env.local` has a generated password;
+on Vercel add `ADMIN_PASSWORD` to Production.
+
+**Creating a question:**
+
+1. **New question** → write the text players will see, e.g. "Name a pitcher who struck out at least 300
+   batters in a single season."
+2. Pick the **category** and fill in its rule (statistic + career/season + threshold, team, position,
+   years, All-Star or World Series year, birthplace…). The structured rule decides eligibility; the text
+   never does, and no AI interprets it. A rule the engine can't express is refused: "This question
+   requires a criteria type that is not currently supported."
+3. **Top-5 Bunt** is on by default for statistical questions and unavailable (with the reason) for others.
+4. **Save draft**, then **Validate question**. The server runs the game's own criteria engine over all
+   24,011 players and reports: the exact number of valid answers, the rule in plain words, the data source,
+   the Top-5 leaders, errors, warnings and **data coverage** (for example, how many players have no
+   pitching record or birthplace). It checks that the data actually covers the question (an All-Star year
+   with no game, a World Series that wasn't played, an unknown team or country, a year outside the data),
+   that the text mentions the rule's numbers, and that the text isn't already in use.
+5. Choose the **Plákata pick** (its one 100-point answer). Validation suggests one by the bank's rule
+   (fewest career games, retired, 100+ games, not already a pick, not a top-five leader), or use
+   **Make pick** in the answers table. Save and validate again.
+6. Check the **Valid answers** table (searchable, sortable by the stat, paginated; admin-only) and
+   **Test an answer**: type a name the way a player would and see whether it's recognized, who it
+   resolves to, whether he qualifies and why, his stat and rank, and the tier he'd score. It uses the same
+   name resolver, criteria and scoring code as the game.
+7. **Publish.** The server validates again (it never trusts the stored report) and writes an immutable
+   question version: eligibility set, rankings and a first scoring snapshot, in one transaction.
+
+**States:** `draft` (saved, or edited since validation) → `validated` (passes, publishable) → `published`
+(in rotation for random games and future daily challenges) → `disabled` (out of rotation; **Enable**
+puts it back). Editing a published question leaves its live version serving until the edit is validated
+and published as a **new version**; past games keep the version they were played with. Today's daily
+challenge never changes: it froze its questions when it was created.
+
+Built-in questions stay in `src/data/question-bank.ts` (shown read-only in the Builder) and
+`questions:sync` manages only those; it never disables a custom question.
+
 ## Data integrity
 
 Five things are deliberately kept apart:
@@ -435,6 +514,11 @@ Five things are deliberately kept apart:
 - **Dataset:** all limitations under [Player data](#player-data). World Series titles require a Series
   appearance; birthplace questions skip 933 players with no birthplace.
 - No public leaderboard yet; the schema keeps per-game totals, modes and daily dates to support one.
+- **Single-season leaders can be 19th-century players.** The Top-5 rule ranks the whole dataset, so on
+  "300 strikeouts in a season" the five leaders are 1880s pitchers (Matt Kilroy's 513 in 1886 is #1) and
+  Nolan Ryan's 383 is not a top-five Bunt. Narrow such questions with an era rule if that's not intended.
+- **The Question Builder has one shared admin password**, not user accounts. Natural-language
+  question parsing is deliberately not included; the structured rule is the source of truth.
 
 ## Tests
 
@@ -457,6 +541,19 @@ Five things are deliberately kept apart:
   missing pitching, unknown birthplace, territories); schema rejects malformed criteria; every pick is
   eligible; selection has no duplicates, is balanced and is deterministic per day.
 - **Tokens and cookies:** round-trip, expiry, tampering, `alg: none`; cookie signatures; IP hashing.
+- **Top-5 rule:** the dataset's career and single-season leaders; career vs. season distinction; filtered
+  populations; competition-rank ties at fifth (all included) and just past it (excluded); missing values;
+  lower-is-better stats requiring a qualifier; determinism; no pick is ever a leader; the override beating
+  rarity while leaving the distribution unchanged; a real game where Bonds scores a Bunt and is still an
+  observation; rankings and the frozen Bunt list per version; non-statistical questions untouched.
+- **Question Builder:** drafts aren't playable; validation counts match the criteria engine exactly;
+  Top-5 leaders and pick suggestions; missing, leader or duplicate picks blocked; unsupported criteria and
+  data the dataset can't answer (1920 All-Stars, the 1994 World Series, future seasons, unknown countries
+  or franchises) blocked; prompt/number warnings; the answer table and Test Answer; publishing into
+  rotation; edits after validation refused; disable/enable; new versions while old games keep theirs;
+  today's daily unchanged; the bank sync leaving custom questions alone; and through the real route
+  handlers: 401 without a session or with a forged one, wrong password, JSON-only writes, the Builder off
+  without `ADMIN_PASSWORD`, and a password change signing sessions out.
 - Plus v1's name-matching, validation, scoring, screen-render and client-reducer tests.
 
 Manual check: a production build (`next start`) driven in Chrome covered the read period, a wrong

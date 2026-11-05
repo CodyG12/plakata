@@ -8,7 +8,7 @@ import { getDb, type Db } from "./db/client";
 import { GameError, type Caller } from "./game-service";
 import { decodeParticipantCookie, hashIp, newParticipantId, PARTICIPANT_COOKIE, participantCookieHeader } from "./participant";
 
-function readCookie(request: Request, name: string): string | undefined {
+export function readCookie(request: Request, name: string): string | undefined {
   const header = request.headers.get("cookie");
   if (!header) return undefined;
   for (const part of header.split(";")) {
@@ -18,7 +18,7 @@ function readCookie(request: Request, name: string): string | undefined {
   return undefined;
 }
 
-function clientIp(request: Request): string | null {
+export function clientIp(request: Request): string | null {
   // Vercel and most proxies put the client first in x-forwarded-for.
   const forwarded = request.headers.get("x-forwarded-for");
   if (forwarded) return forwarded.split(",")[0].trim() || null;

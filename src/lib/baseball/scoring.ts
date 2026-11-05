@@ -83,5 +83,5 @@ export function classifyRarity(rarity: number): ScoringResult {
 
 /** Score for anything that isn't a valid answer: a Strikeout, 0 points. */
 export function noAnswerScore(): ScoreResult {
-  return { valid: false, ...strikeout(), method: "none", estimateNote: null };
+  return { valid: false, ...strikeout(), method: "none", estimateNote: null, overrideApplied: false };
 }
