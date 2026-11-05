@@ -361,9 +361,10 @@ thresholds):
 **One Plákata per question.** Each question's `plakataPick` always scores 100 (product decision). Every
 other valid answer gets its tier from community rarity, **capped at a Triple**. Picks for the original
 seven were hand-chosen in v1. Picks for the 36 new questions follow a documented rule (fewest career games
-among eligible players with ≥ 100 games), except in small elite pools where that rule lands on a star
-(e.g. McGwire for 500 HR). Those were hand-picked deep cuts and are marked in the file. **They're
-provisional: review them.**
+among eligible, retired players with ≥ 100 games who aren't already another question's pick), except in
+small elite pools where that rule lands on a star (e.g. McGwire for 500 HR). Those were hand-picked deep
+cuts and are marked in the file. All 43 picks were reviewed on 2026-11-05. Tests enforce that every pick is
+eligible, single-use and retired.
 
 ### How rarity is calculated
 
@@ -431,7 +432,6 @@ Five things are deliberately kept apart:
   players' changing tastes don't count. A per-season window is a future option.
 - **Calibration and α are design choices**, not fitted to data. Revisit them once real distributions exist.
   `calc_version` is stored with each snapshot.
-- **Rule picks** for new questions are provisional, and some are active players whose stats will change.
 - **Dataset:** all limitations under [Player data](#player-data). World Series titles require a Series
   appearance; birthplace questions skip 933 players with no birthplace.
 - No public leaderboard yet; the schema keeps per-game totals, modes and daily dates to support one.

@@ -14,9 +14,12 @@ import type { QuestionCriteria } from "@/types/baseball";
  *    eligible; the sync refuses otherwise.
  *  - Never hand-enter facts: eligibility comes from the dataset only.
  *
- * Plákata picks marked "rule pick" were chosen by a documented rule (fewest career
- * games among eligible players with at least 100 career games) and are provisional
- * until reviewed. Picks for the original seven were hand-chosen in v1.
+ * Plákata picks marked "rule pick" were chosen by a documented rule: the fewest career
+ * games among eligible, retired players with at least 100 career games who aren't
+ * already another question's pick. "Hand pick" marks small, star-only pools where that
+ * rule lands on a household name. Picks for the original seven were hand-chosen in v1.
+ * All picks were reviewed on 2026-11-05. Tests enforce: each pick is eligible, no
+ * player is the pick for two questions, and no pick is still active.
  */
 export interface QuestionDefinition {
   slug: string;
@@ -83,7 +86,7 @@ export const QUESTION_BANK: readonly QuestionDefinition[] = [
     slug: "franchise-braves",
     prompt: "Name an MLB player who played for the Braves franchise, in Boston, Milwaukee, or Atlanta.",
     criteria: { type: "franchise", franchiseId: "ATL" },
-    plakataPick: "brachsi01", // Silvino Bracho (rule pick)
+    plakataPick: "nichoro02", // Rod Nichols (rule pick)
   },
   {
     slug: "franchise-athletics",
@@ -95,13 +98,13 @@ export const QUESTION_BANK: readonly QuestionDefinition[] = [
     slug: "team-expos",
     prompt: "Name an MLB player who played for the Montreal Expos.",
     criteria: { type: "team", teamIds: ["MON"] },
-    plakataPick: "munozbo01", // Bobby Munoz (rule pick)
+    plakataPick: "haneyto01", // Todd Haney (rule pick)
   },
   {
     slug: "franchise-cubs",
     prompt: "Name an MLB player who played for the Chicago Cubs franchise.",
     criteria: { type: "franchise", franchiseId: "CHC" },
-    plakataPick: "adamsmi02", // Mike Adams (rule pick)
+    plakataPick: "breweco01", // Colten Brewer (rule pick)
   },
 
   // --- Positions (regular-season games at the position, per Lahman Appearances) ----
@@ -211,7 +214,7 @@ export const QUESTION_BANK: readonly QuestionDefinition[] = [
     slug: "all-star",
     prompt: "Name an MLB player who was selected to an All-Star team.",
     criteria: { type: "all_star", minimumSelections: 1 },
-    plakataPick: "brownhu01", // Hunter Brown (rule pick)
+    plakataPick: "huntebe01", // Bert Hunter (rule pick)
   },
   {
     slug: "all-star-5",
@@ -263,7 +266,7 @@ export const QUESTION_BANK: readonly QuestionDefinition[] = [
     slug: "born-dominican-republic",
     prompt: "Name an MLB player born in the Dominican Republic.",
     criteria: { type: "birthplace", country: "D.R." },
-    plakataPick: "bellobr01", // Brayan Bello (rule pick)
+    plakataPick: "merceye01", // Yermin Mercedes (rule pick)
   },
   {
     slug: "born-venezuela",
@@ -302,6 +305,6 @@ export const QUESTION_BANK: readonly QuestionDefinition[] = [
       type: "birthplace",
       excludeCountries: ["USA", "P.R.", "U.S. Virgin Islands", "Guam", "American Samoa"],
     },
-    plakataPick: "bellobr01", // Brayan Bello (rule pick)
+    plakataPick: "cordoal01", // Allen Cordoba (rule pick)
   },
 ];

@@ -136,6 +136,17 @@ describe("question bank", () => {
     }
   });
 
+  it("Plákata picks are single-use and retired", () => {
+    const latestSeason = Math.max(...index.all().map((p) => p.lastYear));
+    const seen = new Map<string, string>();
+    for (const q of QUESTION_BANK) {
+      const other = seen.get(q.plakataPick);
+      expect(other, `${q.plakataPick} is the pick for both ${other} and ${q.slug}`).toBeUndefined();
+      seen.set(q.plakataPick, q.slug);
+      expect(index.getById(q.plakataPick)!.lastYear, `${q.slug}: pick is still active`).toBeLessThan(latestSeason);
+    }
+  });
+
   it("rejects malformed criteria", () => {
     expect(() => questionCriteriaSchema.parse({ type: "position", position: "xx", minimumGames: 1 })).toThrow();
     expect(() => questionCriteriaSchema.parse({ type: "birthplace", state: "CA" })).toThrow();
