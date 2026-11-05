@@ -1,0 +1,8 @@
+# Never upload local secrets or local databases with `vercel deploy`.
+.env*
+!.env.example
+.data
+.neon
+.gstack
+node_modules
+.next
