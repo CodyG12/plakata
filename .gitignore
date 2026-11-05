@@ -43,3 +43,4 @@ next-env.d.ts
 # local PGlite database
 /.data/
 !.env.example
+.neon

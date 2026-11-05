@@ -25,9 +25,17 @@ interface Handle {
 }
 
 async function openPostgres(url: string): Promise<Handle> {
-  const [{ Pool }, { drizzle }] = await Promise.all([import("pg"), import("drizzle-orm/node-postgres")]);
-  // Small pool: serverless functions each get their own; use the provider's pooled URL.
+  const [{ Pool }, { drizzle }, { attachDatabasePool }] = await Promise.all([
+    import("pg"),
+    import("drizzle-orm/node-postgres"),
+    import("@vercel/functions"),
+  ]);
+  // App traffic uses the POOLED url (Neon's -pooler / PgBouncer). Small pool: each
+  // serverless instance gets its own.
   const pool = new Pool({ connectionString: url, max: Number(process.env.DATABASE_POOL_MAX ?? 5) });
+  // On Vercel Fluid compute this closes idle connections before an instance is
+  // suspended (Neon's recommendation); elsewhere it's a no-op.
+  attachDatabasePool(pool);
   const db = drizzle(pool, { schema }) as unknown as Db;
   return { db, ready: Promise.resolve(), close: () => pool.end() };
 }
@@ -50,9 +58,12 @@ export async function openPglite(dataDir?: string, opts: { migrate?: boolean } =
   return { db: db as unknown as Db, ready: ready.then(() => undefined), close: () => client.close() };
 }
 
-/** Applies pending migrations (`npm run plakata -- db:migrate`). */
+/**
+ * Applies pending migrations (`npm run plakata -- db:migrate`). Prefers the DIRECT
+ * connection: migrations over a transaction-mode pooler (PgBouncer) can fail.
+ */
 export async function migrateDatabase(): Promise<void> {
-  const url = process.env.DATABASE_URL;
+  const url = process.env.DATABASE_URL_UNPOOLED ?? process.env.DATABASE_URL;
   if (!url) {
     const handle = await getHandle();
     await handle.ready;

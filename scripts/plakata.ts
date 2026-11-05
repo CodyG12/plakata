@@ -14,7 +14,8 @@
  *   daily:show [YYYY-MM-DD]
  *                         show (and create if missing) a day's daily challenge
  *
- * Uses DATABASE_URL if set, otherwise the local PGlite database in .data/pglite.
+ * Loads .env.local, then uses DATABASE_URL_UNPOOLED (direct) or DATABASE_URL if set,
+ * otherwise the local PGlite database in .data/pglite.
  */
 import { count } from "drizzle-orm";
 import { QUESTION_BANK } from "@/data/question-bank";
@@ -32,6 +33,18 @@ import {
   syncQuestionBank,
 } from "@/server/question-store";
 import { questionCriteriaSchema } from "@/types/baseball";
+
+// Next.js loads .env.local for the app; the CLI loads it itself (Node 21.7+).
+for (const file of [".env.local", ".env"]) {
+  try {
+    process.loadEnvFile(file);
+  } catch {
+    // missing file: fine
+  }
+}
+// Admin work (migrations, bulk imports, snapshot rebuilds) runs over Neon's DIRECT
+// connection; the pooled URL (PgBouncer, transaction mode) is for app traffic.
+if (process.env.DATABASE_URL_UNPOOLED) process.env.DATABASE_URL = process.env.DATABASE_URL_UNPOOLED;
 
 const [command, ...args] = process.argv.slice(2);
 

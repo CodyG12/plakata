@@ -90,7 +90,8 @@
     "vercel.json": [],
     ".env.example": [],
     "eslint.config.mjs": [],
-    "next.config.ts": []
+    "next.config.ts": [],
+    "neon.ts": []
   },
   "empty_lanes": [],
   "selection": {},

@@ -16,6 +16,9 @@
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.15",
+    "@neon/config": "^1.11.3",
+    "@neon/env": "^1.6.15",
+    "@vercel/functions": "^3.10.6",
     "drizzle-orm": "^0.45.4",
     "jose": "^6.2.15",
     "lucide-react": "^1.68.0",
