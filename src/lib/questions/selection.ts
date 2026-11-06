@@ -53,12 +53,33 @@ function shuffle<T>(items: readonly T[], rng: Rng): T[] {
   return out;
 }
 
+/** A Daily question doesn't come back within this many days while its category has an alternative. */
+export const DAILY_COOLDOWN_DAYS = 30;
+
+/** Slug → the most recent day (YYYY-MM-DD) it ran, for questions still on cooldown. */
+export type RecentUse = ReadonlyMap<string, string>;
+
+/** Fresh questions keep their shuffled order; questions on cooldown follow, the longest-ago first. */
+function byFreshness(recent: RecentUse) {
+  return (a: SelectableQuestion, b: SelectableQuestion) => (recent.get(a.slug) ?? "").localeCompare(recent.get(b.slug) ?? "");
+}
+
 /**
  * Picks `count` distinct questions, round-robin across shuffled categories, so
  * every category is used once before any repeats. Input order doesn't matter:
  * questions are sorted by slug first, which keeps a seeded pick reproducible.
+ *
+ * Questions in `recent` are on cooldown: within a category they come after every
+ * fresh question (oldest use first), and a category with nothing fresh comes after
+ * every category that has something fresh. An empty `recent` changes nothing,
+ * since the sorts are stable and the RNG is consumed the same way.
  */
-export function selectBalanced(questions: readonly SelectableQuestion[], count: number, rng: Rng): SelectableQuestion[] {
+export function selectBalanced(
+  questions: readonly SelectableQuestion[],
+  count: number,
+  rng: Rng,
+  recent: RecentUse = new Map(),
+): SelectableQuestion[] {
   if (questions.length < count) throw new Error(`Need ${count} active questions, only ${questions.length} available`);
   const byCategory = new Map<string, SelectableQuestion[]>();
   for (const q of [...questions].sort((a, b) => a.slug.localeCompare(b.slug))) {
@@ -66,7 +87,10 @@ export function selectBalanced(questions: readonly SelectableQuestion[], count: 
     if (list) list.push(q);
     else byCategory.set(q.category, [q]);
   }
-  const pools = shuffle([...byCategory.keys()].sort(), rng).map((c) => shuffle(byCategory.get(c)!, rng));
+  const fresher = byFreshness(recent);
+  const pools = shuffle([...byCategory.keys()].sort(), rng)
+    .map((c) => shuffle(byCategory.get(c)!, rng).sort(fresher))
+    .sort((a, b) => fresher(a[0], b[0]));
   const picked: SelectableQuestion[] = [];
   while (picked.length < count) {
     for (const pool of pools) {
@@ -78,11 +102,21 @@ export function selectBalanced(questions: readonly SelectableQuestion[], count: 
   return picked;
 }
 
-/** The daily seven for a UTC date, e.g. "2026-11-04". */
-export function selectDaily(questions: readonly SelectableQuestion[], day: string, count: number): SelectableQuestion[] {
-  return selectBalanced(questions, count, seededRng(`plakata:daily:${day}`));
+/** The daily seven for a UTC date, e.g. "2026-11-04", avoiding questions in `recent`. */
+export function selectDaily(
+  questions: readonly SelectableQuestion[],
+  day: string,
+  count: number,
+  recent: RecentUse = new Map(),
+): SelectableQuestion[] {
+  return selectBalanced(questions, count, seededRng(`plakata:daily:${day}`), recent);
 }
 
 export function utcDay(now: number): string {
   return new Date(now).toISOString().slice(0, 10);
+}
+
+/** A UTC date `n` days after `day` (negative goes back). */
+export function addDays(day: string, n: number): string {
+  return utcDay(Date.parse(`${day}T00:00:00Z`) + n * 86_400_000);
 }
