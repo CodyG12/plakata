@@ -126,6 +126,51 @@ describe("resolvePlayerName — real Lahman data", () => {
       expect(idOf(resolve("eddie collins negro leagues"))).toBe("collied03");
     });
 
+    it("every Jr./Sr./III alias pair resolves both ways, and the plain name means the father", () => {
+      const pairs: Array<[string, string, string]> = [
+        ["Gary Matthews", "matthga01", "matthga02"],
+        ["Billy Sullivan", "sullibi03", "sullibi04"],
+        ["Delino DeShields", "deshide01", "deshide02"],
+        ["Pedro Borbon", "borbope01", "borbope02"],
+        ["Ozzie Virgil", "virgioz01", "virgioz02"],
+        ["Jim Bagby", "bagbyji01", "bagbyji02"],
+        ["Steve Lombardozzi", "lombast01", "lombast02"],
+        ["Mark Leiter", "leitema01", "leitema02"],
+        ["Ivan De Jesus", "dejesiv01", "dejesiv02"],
+        ["Ed Sprague", "spraged01", "spraged02"],
+        ["Tony Armas", "armasto01", "armasto02"],
+        ["Dwight Smith", "smithdw01", "smithdw02"],
+        ["Eric Young", "younger01", "younger03"],
+        ["John Mayberry", "maybejo01", "maybejo02"],
+        ["Hal Trosky", "troskha01", "troskha02"],
+        ["Ed Walsh", "walshed01", "walshed02"],
+        ["Lew Krausse", "krausle01", "krausle02"],
+        ["Chet Nichols", "nichoch01", "nichoch02"],
+        ["Glenn Liebhardt", "liebhgl01", "liebhgl02"],
+        ["Charlie Beamon", "beamoch01", "beamoch02"],
+        ["Earl Averill", "averiea01", "averiea02"],
+        ["Joe Schultz", "schuljo03", "schuljo05"],
+      ];
+      for (const [name, sr, jr] of pairs) {
+        expect(resolve(name), name).toMatchObject({ kind: "resolved", player: { id: sr } });
+        expect(resolve(`${name} Sr.`), `${name} Sr.`).toMatchObject({ kind: "resolved", player: { id: sr } });
+        expect(resolve(`${name} Jr.`), `${name} Jr.`).toMatchObject({ kind: "resolved", player: { id: jr } });
+      }
+      // Accents and missing punctuation still reach the alias.
+      expect(idOf(resolve("Pedro Borbón Jr"))).toBe("borbope02");
+      expect(idOf(resolve("Iván De Jesús Jr."))).toBe("dejesiv02");
+    });
+
+    it("Jr.-only names: the plain name stays a choice between namesakes", () => {
+      expect(idOf(resolve("Tony Pena Jr."))).toBe("penato02");
+      expect(resolve("Tony Peña")).toMatchObject({ kind: "namesakes" });
+      expect(idOf(resolve("Lyman Bostock Jr."))).toBe("bostoly01");
+      expect(resolve("Lyman Bostock")).toMatchObject({ kind: "namesakes" });
+      expect(idOf(resolve("Roy Smalley Jr."))).toBe("smallro01");
+      expect(idOf(resolve("Roy Smalley III"))).toBe("smallro02");
+      expect(resolve("Roy Smalley")).toMatchObject({ kind: "namesakes" });
+    });
+
     it("resolves an explicit Sr. directly", () => {
       expect(resolve("Ken Griffey Sr")).toMatchObject({ kind: "resolved", player: { id: "griffke01" } });
     });
