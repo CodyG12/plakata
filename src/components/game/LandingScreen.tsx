@@ -1,6 +1,14 @@
-import { Gem, Play, Timer, TriangleAlert, Trophy } from "lucide-react";
+import { CircleHelp, Gem, Play, Timer, TriangleAlert, Trophy, X } from "lucide-react";
+import { useRef, type Ref } from "react";
 import { Button } from "@/components/ui/Button";
-import { GAME_MODES, MAX_GAME_SCORE, READ_SECONDS, ROUND_COUNT, ROUND_SECONDS, type GameMode } from "@/lib/game/config";
+import {
+  GAME_MODES,
+  MAX_GAME_SCORE,
+  READ_SECONDS,
+  ROUND_COUNT,
+  ROUND_SECONDS,
+  type GameMode,
+} from "@/lib/game/config";
 import { SCORING_TIERS } from "@/lib/baseball/scoring";
 
 /** "Bunt 10 · Single 25 · … · Plákata 100", straight from the scoring table. */
@@ -40,32 +48,59 @@ const RULES = [
   },
 ];
 
-export function LandingScreen({ mode, onModeChange, onStart, busy = false, error = null }: LandingScreenProps) {
+export function LandingScreen({
+  mode,
+  onModeChange,
+  onStart,
+  busy = false,
+  error = null,
+}: LandingScreenProps) {
+  const rulesDialog = useRef<HTMLDialogElement>(null);
   return (
     <section className="flex flex-col items-center gap-10 text-center animate-rise">
       <div className="flex flex-col items-center">
         <BaseballMark />
-        <p className="mt-6 text-xs font-semibold uppercase tracking-[0.28em] text-stitch-400">Baseball trivia</p>
+        <p className="mt-6 text-xs font-semibold uppercase tracking-[0.28em] text-stitch-400">
+          Baseball trivia
+        </p>
         <h1 className="mt-3 font-display text-6xl font-semibold tracking-tight text-cream-50 sm:text-7xl">
           Plákata
         </h1>
         <p className="mt-4 max-w-md text-lg leading-relaxed text-navy-300 text-balance">
-          Everyone knows Babe Ruth. The points are in the players nobody else thinks of.
+          Everyone knows Babe Ruth. The points are in the players nobody else
+          thinks of.
         </p>
       </div>
 
       <ul className="grid w-full gap-3 text-left sm:grid-cols-3">
-        {RULES.map(({ icon: Icon, title, body }) => (
-          <li key={title} className="rounded-2xl bg-navy-900/70 p-5 ring-1 ring-navy-800">
+        {RULES.map(({ icon: Icon, title }) => (
+          <li
+            key={title}
+            className="rounded-2xl bg-navy-900/70 p-5 ring-1 ring-navy-800"
+          >
             <Icon className="size-5 text-stitch-400" aria-hidden />
             <h2 className="mt-3 font-semibold text-cream-50">{title}</h2>
-            <p className="mt-1.5 text-sm leading-relaxed text-navy-300">{body}</p>
           </li>
         ))}
       </ul>
 
+      <Button
+        variant="ghost"
+        onClick={() => rulesDialog.current?.showModal()}
+        icon={<CircleHelp className="size-4" aria-hidden />}
+        className="-mt-6"
+        aria-haspopup="dialog"
+      >
+        How to play
+      </Button>
+      <HowToPlayDialog ref={rulesDialog} />
+
       <div className="flex w-full flex-col items-center gap-4">
-        <div role="radiogroup" aria-label="Game mode" className="inline-flex rounded-full bg-navy-900/70 p-1 ring-1 ring-navy-800">
+        <div
+          role="radiogroup"
+          aria-label="Game mode"
+          className="inline-flex rounded-full bg-navy-900/70 p-1 ring-1 ring-navy-800"
+        >
           {GAME_MODES.map((m) => (
             <button
               key={m}
@@ -74,7 +109,9 @@ export function LandingScreen({ mode, onModeChange, onStart, busy = false, error
               aria-checked={mode === m}
               onClick={() => onModeChange(m)}
               className={`rounded-full px-4 py-1.5 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cream-100 ${
-                mode === m ? "bg-cream-100 text-ink" : "text-navy-300 hover:text-cream-100"
+                mode === m
+                  ? "bg-cream-100 text-ink"
+                  : "text-navy-300 hover:text-cream-100"
               }`}
             >
               {MODE_OPTIONS[m].label}
@@ -94,8 +131,14 @@ export function LandingScreen({ mode, onModeChange, onStart, busy = false, error
         </Button>
 
         {error && (
-          <p role="alert" className="flex items-start gap-2 rounded-xl bg-navy-900/80 px-4 py-3 text-left text-[15px] text-cream-200 ring-1 ring-navy-700">
-            <TriangleAlert className="mt-0.5 size-4 shrink-0 text-cream-300" aria-hidden />
+          <p
+            role="alert"
+            className="flex items-start gap-2 rounded-xl bg-navy-900/80 px-4 py-3 text-left text-[15px] text-cream-200 ring-1 ring-navy-700"
+          >
+            <TriangleAlert
+              className="mt-0.5 size-4 shrink-0 text-cream-300"
+              aria-hidden
+            />
             {error}
           </p>
         )}
@@ -104,10 +147,64 @@ export function LandingScreen({ mode, onModeChange, onStart, busy = false, error
   );
 }
 
+/**
+ * The full rules, kept out of the landing layout. A native dialog gives Escape
+ * to close, a focus trap and a backdrop; clicking the backdrop also closes it.
+ */
+function HowToPlayDialog({ ref }: { ref: Ref<HTMLDialogElement> }) {
+  return (
+    <dialog
+      ref={ref}
+      aria-labelledby="how-to-play-title"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) e.currentTarget.close();
+      }}
+      className="m-auto w-[calc(100%-2rem)] max-w-lg rounded-3xl bg-navy-900 p-0 text-left text-cream-100 ring-1 ring-navy-700 backdrop:bg-navy-950/80 backdrop:backdrop-blur-sm"
+    >
+      <div className="p-6 sm:p-8">
+        <div className="flex items-center justify-between gap-4">
+          <h2
+            id="how-to-play-title"
+            className="font-display text-2xl font-semibold text-cream-50"
+          >
+            How to play
+          </h2>
+          <form method="dialog">
+            <button
+              type="submit"
+              aria-label="Close"
+              className="rounded-full p-2 text-navy-300 transition hover:bg-navy-800 hover:text-cream-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cream-100"
+            >
+              <X className="size-5" aria-hidden />
+            </button>
+          </form>
+        </div>
+        <ul className="mt-6 flex flex-col gap-5">
+          {RULES.map(({ icon: Icon, title, body }) => (
+            <li key={title} className="flex gap-4">
+              <Icon className="mt-0.5 size-5 shrink-0 text-stitch-400" aria-hidden />
+              <div>
+                <h3 className="font-semibold text-cream-50">{title}</h3>
+                <p className="mt-1 text-sm leading-relaxed text-navy-300">
+                  {body}
+                </p>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </dialog>
+  );
+}
+
 /** A minimal baseball: cream circle with two red stitch seams. */
 function BaseballMark() {
   return (
-    <svg viewBox="0 0 64 64" className="size-16 drop-shadow-[0_8px_24px_rgb(204_58_47/0.35)]" aria-hidden>
+    <svg
+      viewBox="0 0 64 64"
+      className="size-16 drop-shadow-[0_8px_24px_rgb(204_58_47/0.35)]"
+      aria-hidden
+    >
       <circle cx="32" cy="32" r="30" className="fill-cream-100" />
       <path
         d="M14 9c7 6 10 14 10 23s-3 17-10 23M50 9c-7 6-10 14-10 23s3 17 10 23"
