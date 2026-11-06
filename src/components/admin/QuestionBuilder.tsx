@@ -506,13 +506,24 @@ function TestAnswer({ draftId }: { draftId: string }) {
 
 // ----- Editor ----------------------------------------------------------------------------------
 
-function Editor({ draft, options, onChanged }: { draft: DraftView | null; options: Options; onChanged: (d: DraftView) => void }) {
+function Editor({
+  draft,
+  options,
+  onChanged,
+  flash,
+}: {
+  draft: DraftView | null;
+  options: Options;
+  onChanged: (d: DraftView, message: string) => void;
+  /** A success message to show on mount: saving a new draft remounts the editor under its id. */
+  flash?: string;
+}) {
   const [prompt, setPrompt] = useState(draft?.prompt ?? "");
   const [form, setForm] = useState<Form>(draft ? fromCriteria(draft.criteria as Record<string, unknown>) : DEFAULT_FORM);
   const [pick, setPick] = useState(draft?.plakataPick ?? "");
   const [topFive, setTopFive] = useState(draft?.topFiveOverride ?? true);
   const [busy, setBusy] = useState<string | null>(null);
-  const [message, setMessage] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
+  const [message, setMessage] = useState<{ tone: "ok" | "error"; text: string } | null>(flash ? { tone: "ok", text: flash } : null);
   const isStat = form.type === "stat_threshold";
   const set = (k: string) => (e: { target: { value: string } }) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
@@ -521,7 +532,7 @@ function Editor({ draft, options, onChanged }: { draft: DraftView | null; option
     setMessage(null);
     try {
       const saved = await fn();
-      onChanged(saved);
+      onChanged(saved, success);
       setMessage({ tone: "ok", text: success });
     } catch (err) {
       setMessage({ tone: "error", text: err instanceof Error ? err.message : "Something went wrong." });
@@ -791,6 +802,7 @@ export function QuestionBuilder() {
   const [list, setList] = useState<QuestionList | null>(null);
   const [options, setOptions] = useState<Options | null>(null);
   const [selected, setSelected] = useState<string | "new" | null>(null);
+  const [flash, setFlash] = useState<{ id: string; text: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const loadSession = useCallback(async () => {
@@ -852,7 +864,7 @@ export function QuestionBuilder() {
       {session?.authenticated && list && options && (
         <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
           <aside className="flex flex-col gap-4">
-            <Button icon={<Plus className="size-4" aria-hidden />} onClick={() => setSelected("new")}>
+            <Button icon={<Plus className="size-4" aria-hidden />} onClick={() => (setFlash(null), setSelected("new"))}>
               New question
             </Button>
             <Panel title="Your questions">
@@ -864,7 +876,7 @@ export function QuestionBuilder() {
                     <li key={d.id}>
                       <button
                         type="button"
-                        onClick={() => setSelected(d.id)}
+                        onClick={() => (setFlash(null), setSelected(d.id))}
                         className={`w-full rounded-lg px-3 py-2 text-left text-sm transition hover:bg-cream-200 ${selected === d.id ? "bg-cream-200" : ""}`}
                       >
                         <span className="line-clamp-2 font-medium">{d.prompt || "(untitled)"}</span>
@@ -900,7 +912,9 @@ export function QuestionBuilder() {
                 key={selected === "new" ? "new" : `${current?.id}`}
                 draft={current}
                 options={options}
-                onChanged={(d) => {
+                flash={flash?.id === current?.id ? flash?.text : undefined}
+                onChanged={(d, message) => {
+                  setFlash({ id: d.id, text: message });
                   setSelected(d.id);
                   setList((l) => (l ? { ...l, drafts: [d, ...l.drafts.filter((x) => x.id !== d.id)] } : l));
                 }}

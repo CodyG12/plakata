@@ -44,3 +44,8 @@ next-env.d.ts
 /.data/
 !.env.example
 .neon
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
