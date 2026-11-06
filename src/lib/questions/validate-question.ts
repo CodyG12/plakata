@@ -45,7 +45,7 @@ export interface ValidationReport {
   eligibleCount: number;
   criteriaSummary: string;
   dataSource: string;
-  topFive: { enabled: boolean; supported: boolean; reason?: string; leaders: TopFiveEntry[] };
+  topFive: { enabled: boolean; supported: boolean; reason?: string; note?: string; leaders: TopFiveEntry[] };
   plakataPick: { playerId: string; name: string } | null;
   /** A rule-based deep-cut suggestion (fewest games, retired, ≥100 games, unused, not a leader). */
   suggestedPick: { playerId: string; name: string; games: number } | null;
@@ -306,6 +306,9 @@ export function validateQuestion(input: ValidationInput, ctx: ValidationContext,
       enabled: input.topFiveOverride && supported,
       supported,
       ...(supported ? {} : { reason: "Only statistical questions have a meaningful top five." }),
+      ...(rankingConfigFor(criteria)?.seasonFloor
+        ? { note: `Ranked by best season from ${rankingConfigFor(criteria)!.seasonFloor} on (60'6" pitching). Earlier seasons still count as valid answers.` }
+        : {}),
       leaders,
     },
     plakataPick: pick,

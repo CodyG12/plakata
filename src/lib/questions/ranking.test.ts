@@ -51,6 +51,32 @@ describe("Top-5 rankings from the dataset", () => {
     expect(top).not.toContain("aaronha01"); // 755 career HR, but never 62+ in a season
   });
 
+  it("single-season pitching ranks only 1893+ seasons (60'6\" era), so 1880s workloads don't take the Bunts", () => {
+    const q = bank("season-wins-20");
+    const el = eligible(q.criteria);
+    const config = rankingConfigFor(q.criteria)!;
+    expect(config.seasonFloor).toBe(1893);
+    const ranked = rankPlayers(el, config);
+    // Three tied at 36 for fourth, so six Bunts.
+    expect(names(topFiveIds(ranked))).toEqual(["Amos Rusie", "Christy Mathewson", "Ed Walsh", "Frank Killen", "Jack Chesbro", "Walter Johnson"]);
+    expect(ranked.slice(0, 6).map((r) => r.value)).toEqual([41, 40, 37, 36, 36, 36]);
+    // Radbourn (60 wins in 1884) still answers the question; he just isn't ranked.
+    expect(el.some((p) => p.id === "radboch01")).toBe(true);
+    expect(ranked.some((r) => r.playerId === "radboch01")).toBe(false);
+    // Cy Young's 36 came in 1892; his best from 1893 on is 35.
+    expect(ranked.find((r) => r.playerId === "youngcy01")?.value).toBe(35);
+  });
+
+  it("the floor covers single-season strikeouts too, but not career pitching or batting", () => {
+    const k300: QuestionCriteria = { type: "stat_threshold", stat: "pitcherStrikeouts", scope: "season", operator: ">=", value: 300 };
+    expect(names(topFiveIds(rankPlayers(eligible(k300), rankingConfigFor(k300)!)))).toEqual([
+      "Bob Feller", "Nolan Ryan", "Randy Johnson", "Rube Waddell", "Sandy Koufax",
+    ]);
+    expect(rankingConfigFor(bank("wins-200").criteria)!.seasonFloor).toBeUndefined();
+    expect(rankingConfigFor(bank("season-hr-40").criteria)!.seasonFloor).toBeUndefined();
+    expect(rankingConfigFor(bank("season-hits-200").criteria)!.seasonFloor).toBeUndefined();
+  });
+
   it("ranks only the question's eligible players (filters respected)", () => {
     // Same stat, a filtered population: the top five Mariners by career HR are not the all-time five.
     const mariners = eligible(bank("mariners").criteria);
@@ -119,6 +145,16 @@ describe("ranking policy (synthetic players)", () => {
     const config: RankingConfig = { stat: "saves", scope: "career", direction: "asc", qualifier: { stat: "wins", min: 100 } };
     const players = [fake("tiny", { saves: 0, wins: 2 }), fake("x", { saves: 5, wins: 150 }), fake("y", { saves: 3, wins: 120 })];
     expect(rankPlayers(players, config).map((r) => r.playerId)).toEqual(["y", "x"]);
+  });
+
+  it("season floor: uses bestPitchingSeasonFrom1893 when present, bestSeason otherwise; {} means unranked", () => {
+    const config: RankingConfig = { stat: "wins", scope: "season", direction: "desc", seasonFloor: 1893 };
+    const both = { ...fake("both", {}, { wins: 50 }), bestPitchingSeasonFrom1893: { wins: 30 } };
+    const early = { ...fake("early", {}, { wins: 59 }), bestPitchingSeasonFrom1893: {} };
+    const modern = fake("modern", {}, { wins: 31 });
+    expect(rankPlayers([both, early, modern], config).map((r) => [r.playerId, r.value])).toEqual([["modern", 31], ["both", 30]]);
+    expect(rankPlayers([both, early, modern], { ...config, seasonFloor: undefined })[0].playerId).toBe("early");
+    expect(() => rankPlayers([both], { ...config, seasonFloor: 1920 })).toThrow(/season floor/);
   });
 
   it("is deterministic regardless of input order", () => {

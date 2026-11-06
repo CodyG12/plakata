@@ -382,6 +382,12 @@ Ruth (714), Pujols (703) and A-Rod (696), computed from the data, never hard-cod
 
 - **Metric:** the question's own stat. Career questions rank by career total; single-season questions rank
   distinct players by their **best season** (so "40 HR in a season" uses Bonds' 73, not career totals).
+- **1893 floor for single-season pitching:** season rankings of wins, strikeouts and saves count only
+  seasons from 1893 on, when the pitching distance became 60'6". Otherwise 1880s workloads (Radbourn's
+  60 wins, Kilroy's 513 strikeouts) take every Bunt. On "20 wins in a season" the leaders are Chesbro (41),
+  Walsh (40), Mathewson (37) and a three-way tie at 36 (W. Johnson, Killen, Rusie). The floor only picks
+  the leaders: pre-1893 pitchers are still valid answers, scored by rarity. Career and batting rankings have
+  no floor. The dataset carries `bestPitchingSeasonFrom1893` for players with a pre-1893 pitching season.
 - **Population:** only the question's eligible players, so any filter in the criteria is respected.
 - **Ties:** standard competition ranking ("1224"). Everyone ranked ≤ 5 gets the override, so a tie at fifth
   includes every tied player.
@@ -514,9 +520,8 @@ Five things are deliberately kept apart:
 - **Dataset:** all limitations under [Player data](#player-data). World Series titles require a Series
   appearance; birthplace questions skip 933 players with no birthplace.
 - No public leaderboard yet; the schema keeps per-game totals, modes and daily dates to support one.
-- **Single-season leaders can be 19th-century players.** The Top-5 rule ranks the whole dataset, so on
-  "300 strikeouts in a season" the five leaders are 1880s pitchers (Matt Kilroy's 513 in 1886 is #1) and
-  Nolan Ryan's 383 is not a top-five Bunt. Narrow such questions with an era rule if that's not intended.
+- **Single-season batting leaders can still be early players** (no floor there): the 200-hit leaders
+  include Sisler, O'Doul and Terry from the 1920s. Single-season pitching starts at 1893 (see the Top-5 rule).
 - **The Question Builder has one shared admin password**, not user accounts. Natural-language
   question parsing is deliberately not included; the structured rule is the source of truth.
 

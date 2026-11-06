@@ -10,6 +10,10 @@
  * Ranking policy (documented in the README):
  *  - Metric: the question's own statistic. Career questions rank by career total;
  *    single-season questions rank DISTINCT players by their best season.
+ *  - Era floor: single-season PITCHING rankings (wins, strikeouts, saves) count only
+ *    seasons from 1893 on, when the pitching distance became 60'6". Pre-1893 seasons
+ *    (50-foot pitching, 60-win workloads) would otherwise fill every leaderboard.
+ *    The floor only decides who gets the Bunt: eligibility still uses every season.
  *  - Population: only players eligible for the question version, so any filters in
  *    the criteria are respected automatically.
  *  - Ties: standard competition ranking ("1224"). Everyone whose rank is ≤ 5 gets
@@ -34,7 +38,12 @@ export interface StatMeta {
    * in the same scope to be ranked (e.g. 1,000 innings for ERA).
    */
   qualifier?: { stat: StatKey; min: number };
+  /** Single-season rankings count only seasons from this year on. */
+  seasonFloor?: typeof PITCHING_SEASON_FLOOR;
 }
+
+/** The year the pitching distance became 60'6" (see the dataset's bestPitchingSeasonFrom1893). */
+export const PITCHING_SEASON_FLOOR = 1893;
 
 /** Every stat the dataset carries is a counting stat: higher is better, no qualifier needed. */
 export const STAT_META: Record<StatKey, StatMeta> = {
@@ -42,9 +51,9 @@ export const STAT_META: Record<StatKey, StatMeta> = {
   hits: { label: "Hits", direction: "desc" },
   runsBattedIn: { label: "RBIs", direction: "desc" },
   stolenBases: { label: "Stolen bases", direction: "desc" },
-  wins: { label: "Pitching wins", direction: "desc" },
-  pitcherStrikeouts: { label: "Strikeouts (pitching)", direction: "desc" },
-  saves: { label: "Saves", direction: "desc" },
+  wins: { label: "Pitching wins", direction: "desc", seasonFloor: PITCHING_SEASON_FLOOR },
+  pitcherStrikeouts: { label: "Strikeouts (pitching)", direction: "desc", seasonFloor: PITCHING_SEASON_FLOOR },
+  saves: { label: "Saves", direction: "desc", seasonFloor: PITCHING_SEASON_FLOOR },
 };
 
 export interface RankingConfig {
@@ -52,17 +61,31 @@ export interface RankingConfig {
   scope: "career" | "season";
   direction: RankingDirection;
   qualifier?: { stat: StatKey; min: number };
+  /** Season scope only: count seasons from this year on. */
+  seasonFloor?: number;
 }
 
 /** The ranking a question uses, or null if the question isn't statistical. */
 export function rankingConfigFor(criteria: QuestionCriteria): RankingConfig | null {
   if (criteria.type !== "stat_threshold") return null;
   const meta = STAT_META[criteria.stat];
-  return { stat: criteria.stat, scope: criteria.scope, direction: meta.direction, qualifier: meta.qualifier };
+  const config: RankingConfig = { stat: criteria.stat, scope: criteria.scope, direction: meta.direction, qualifier: meta.qualifier };
+  if (criteria.scope === "season" && meta.seasonFloor) config.seasonFloor = meta.seasonFloor;
+  return config;
 }
 
 export function statValue(player: BaseballPlayer, stat: StatKey, scope: "career" | "season"): number | undefined {
   return (scope === "career" ? player.career : player.bestSeason)[stat];
+}
+
+/** The value a ranking uses: like statValue, but honouring the config's season floor. */
+export function rankingValue(player: BaseballPlayer, stat: StatKey, config: Pick<RankingConfig, "scope" | "seasonFloor">): number | undefined {
+  if (config.scope === "season" && config.seasonFloor !== undefined) {
+    if (config.seasonFloor !== PITCHING_SEASON_FLOOR) throw new Error(`No dataset field for a season floor of ${config.seasonFloor}`);
+    const fromFloor = player.bestPitchingSeasonFrom1893;
+    if (fromFloor) return fromFloor[stat];
+  }
+  return statValue(player, stat, config.scope);
 }
 
 export interface RankedPlayer {
@@ -88,10 +111,10 @@ export function rankPlayers(
   }
   const rows: { playerId: string; value: number }[] = [];
   for (const p of players) {
-    const value = statValue(p, config.stat, config.scope);
+    const value = rankingValue(p, config.stat, config);
     if (value === undefined) continue;
     if (config.qualifier) {
-      const q = statValue(p, config.qualifier.stat, config.scope);
+      const q = rankingValue(p, config.qualifier.stat, config);
       if (q === undefined || q < config.qualifier.min) continue;
     }
     rows.push({ playerId: p.id, value });
