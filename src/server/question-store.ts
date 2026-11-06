@@ -73,11 +73,17 @@ export function eligiblePlayerIds(criteria: QuestionCriteria, index: PlayerIndex
 /**
  * What makes a version: prompt, criteria, data release, and (only when on) the
  * Top-5 rule, so turning the rule on or off is a new version but leaves the hash
- * of non-statistical questions unchanged.
+ * of non-statistical questions unchanged. A ranking season floor (single-season
+ * pitching: 1893+) is part of the hash too, so adding it made new versions of only
+ * the questions whose leaderboards it changes.
  */
 export function contentHash(prompt: string, criteria: QuestionCriteria, dataRelease: string, topFiveOverride: boolean): string {
   const parts: unknown[] = [prompt, criteria, dataRelease];
-  if (topFiveOverride) parts.push("top-five-bunt");
+  if (topFiveOverride) {
+    parts.push("top-five-bunt");
+    const floor = rankingConfigFor(criteria)?.seasonFloor;
+    if (floor !== undefined) parts.push(`season-floor:${floor}`);
+  }
   return createHash("sha256").update(JSON.stringify(parts)).digest("hex");
 }
 

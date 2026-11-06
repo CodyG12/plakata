@@ -100,7 +100,10 @@ for (const row of readCsv("Appearances.csv")) {
 
 // --- Batting and pitching: career totals and best single season -------------
 // Season totals sum every stint (team) within the season before taking the max.
-function accumulate(file, columns) {
+// `bestFrom` (when `fromYear` is given) holds the best season at or after that year,
+// but only for players with at least one season before it; for everyone else it
+// would just repeat `best`. A player whose seasons are all earlier gets {}.
+function accumulate(file, columns, fromYear) {
   const career = new Map(); // playerID -> { stat: total }
   const seasons = new Map(); // `${playerID}|${year}` -> { stat: total }
   for (const row of readCsv(file)) {
@@ -114,15 +117,29 @@ function accumulate(file, columns) {
     }
   }
   const best = new Map();
+  const bestFrom = new Map();
+  const before = new Set(); // players with a season before fromYear
   for (const [key, season] of seasons) {
     const id = key.slice(0, key.indexOf("|"));
+    const year = Number(key.slice(key.indexOf("|") + 1));
     const b = getOrInit(best, id, () => ({}));
     for (const [stat, n] of Object.entries(season)) b[stat] = Math.max(b[stat] ?? 0, n);
+    if (fromYear === undefined) continue;
+    if (year < fromYear) {
+      before.add(id);
+      continue;
+    }
+    const f = getOrInit(bestFrom, id, () => ({}));
+    for (const [stat, n] of Object.entries(season)) f[stat] = Math.max(f[stat] ?? 0, n);
   }
-  return { career, best };
+  const bestFromEarly = new Map([...before].map((id) => [id, bestFrom.get(id) ?? {}]));
+  return { career, best, bestFrom: bestFromEarly };
 }
 const batting = accumulate("Batting.csv", { homeRuns: "HR", hits: "H", runsBattedIn: "RBI", stolenBases: "SB" });
-const pitching = accumulate("Pitching.csv", { wins: "W", pitcherStrikeouts: "SO", saves: "SV" });
+// 1893: the pitching distance moved to 60'6". Top-5 rankings of single-season
+// pitching stats count only seasons from then on (see src/lib/questions/ranking.ts).
+const PITCHING_SEASON_FLOOR = 1893;
+const pitching = accumulate("Pitching.csv", { wins: "W", pitcherStrikeouts: "SO", saves: "SV" }, PITCHING_SEASON_FLOOR);
 
 // --- Awards -------------------------------------------------------------------
 const mvp = new Map();
@@ -212,6 +229,8 @@ for (const person of readCsv("People.csv")) {
     positions: appearance.positions,
     career: { ...bat, ...pit },
     bestSeason: { ...batting.best.get(person.playerID), ...pitching.best.get(person.playerID) },
+    // Only for pitchers with a pre-1893 season: their best pitching season from 1893 on.
+    ...(pitching.bestFrom.has(person.playerID) ? { bestPitchingSeasonFrom1893: pitching.bestFrom.get(person.playerID) } : {}),
     mvp: (mvp.get(person.playerID) ?? []).sort((a, b) => a - b),
     cyYoung: (cyYoung.get(person.playerID) ?? []).sort((a, b) => a - b),
     hof: hof.get(person.playerID) ?? null,

@@ -42,6 +42,13 @@ export interface BaseballPlayer {
   career: Partial<Record<StatKey, number>>;
   /** Best single-season total (all stints in a season summed). Absent = no data. */
   bestSeason: Partial<Record<StatKey, number>>;
+  /**
+   * Best single-season pitching totals counting only seasons from 1893 on (when the
+   * pitching distance became 60'6"). Present only for players with a pitching
+   * season before 1893 ({} if they never pitched after); for everyone else
+   * `bestSeason` already covers only 1893+ pitching. Used by Top-5 rankings only.
+   */
+  bestPitchingSeasonFrom1893?: Partial<Record<StatKey, number>>;
   /** Seasons in which the player won the MVP (as Lahman records it). */
   mvp: number[];
   /** Seasons in which the player won the Cy Young Award. */

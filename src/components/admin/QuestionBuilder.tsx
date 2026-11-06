@@ -291,7 +291,10 @@ function Report({ report, current, onUsePick }: { report: ValidationReport; curr
         <dt className="text-ink-muted">Data source</dt>
         <dd>{report.dataSource}</dd>
         <dt className="text-ink-muted">Top-5 Bunt rule</dt>
-        <dd>{report.topFive.supported ? (report.topFive.enabled ? "Enabled" : "Off for this question") : `Not applicable: ${report.topFive.reason}`}</dd>
+        <dd>
+          {report.topFive.supported ? (report.topFive.enabled ? "Enabled" : "Off for this question") : `Not applicable: ${report.topFive.reason}`}
+          {report.topFive.enabled && report.topFive.note && <span className="block text-sm text-ink-muted">{report.topFive.note}</span>}
+        </dd>
         <dt className="text-ink-muted">Plákata pick</dt>
         <dd>
           {report.plakataPick ? `${report.plakataPick.name} (${report.plakataPick.playerId})` : "Not chosen"}
