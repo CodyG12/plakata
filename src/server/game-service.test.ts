@@ -17,6 +17,7 @@ import {
   completeRound,
   createGame,
   GameError,
+  getOrCreateDaily,
   getGameView,
   insertGame,
   startNextRound,
@@ -380,6 +381,21 @@ describe("frozen scoring snapshots", () => {
     expect(new Set(qa).size).toBe(7);
     const versions = await getVersions(db, qa);
     expect(new Set(qa.map((id) => categoryOf(versions.get(id)!.criteria.type))).size).toBe(7);
+  });
+
+  it("the next day's Daily only repeats a question when its whole category ran the day before", async () => {
+    const yesterday = await getOrCreateDaily(db, "2026-12-01");
+    const today = await getOrCreateDaily(db, "2026-12-02");
+    const active = await listActiveVersions(db);
+    const slugOf = new Map(active.map((v) => [v.id, v.slug]));
+    const ranYesterday = new Set(yesterday.questionVersionIds.map((id) => slugOf.get(id)));
+    const repeats = active.filter((v) => today.questionVersionIds.includes(v.id) && ranYesterday.has(v.slug));
+    for (const r of repeats) {
+      const sameCategory = active.filter((v) => v.category === r.category);
+      expect(sameCategory.every((v) => ranYesterday.has(v.slug)), `${r.slug} repeated with a fresh alternative`).toBe(true);
+    }
+    // The test bank has spare questions in team, stats and honors, so some must rotate.
+    expect(repeats.length).toBeLessThan(ROUND_COUNT);
   });
 });
 

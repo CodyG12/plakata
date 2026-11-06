@@ -12,7 +12,7 @@
  * exactly one changes the row; the other sees the finished round.
  */
 import { randomUUID } from "node:crypto";
-import { and, asc, eq, gte, sql } from "drizzle-orm";
+import { and, asc, eq, gte, lt, sql } from "drizzle-orm";
 import { getPlayerIndex } from "@/lib/baseball/dataset";
 import { noAnswerScore, tierConfig, isScoringTier } from "@/lib/baseball/scoring";
 import { validateAnswer, type AnswerTarget } from "@/lib/baseball/validate-answer";
@@ -23,7 +23,7 @@ import {
   ROUND_SECONDS,
   type GameMode,
 } from "@/lib/game/config";
-import { cryptoRng, selectBalanced, selectDaily, utcDay, type Rng } from "@/lib/questions/selection";
+import { addDays, cryptoRng, DAILY_COOLDOWN_DAYS, selectBalanced, selectDaily, utcDay, type Rng } from "@/lib/questions/selection";
 import { scoreFromSnapshot } from "@/lib/rarity/rarity";
 import type { ScoreMethod, ScoreResult, ValidationResult } from "@/types/baseball";
 import type { ActiveRoundView, GameView, RoundResultView, SubmitResponse } from "@/types/api";
@@ -133,7 +133,7 @@ export async function getOrCreateDaily(db: Db, day: string) {
   const existing = await db.select().from(dailyChallenges).where(eq(dailyChallenges.day, day));
   if (existing[0]) return existing[0];
   const active = await listActiveVersions(db);
-  const picked = selectDaily(active, day, ROUND_COUNT).map((q) => q.id);
+  const picked = selectDaily(active, day, ROUND_COUNT, await recentDailyUse(db, day)).map((q) => q.id);
   const snaps = await activeSnapshotIds(db, picked);
   await db
     .insert(dailyChallenges)
@@ -141,6 +141,26 @@ export async function getOrCreateDaily(db: Db, day: string) {
     .onConflictDoNothing();
   const [row] = await db.select().from(dailyChallenges).where(eq(dailyChallenges.day, day));
   return row;
+}
+
+/**
+ * Questions that ran in a Daily during the cooldown window before `day`, keyed
+ * by slug (a re-synced question gets a new version id but is the same question).
+ */
+async function recentDailyUse(db: Db, day: string): Promise<Map<string, string>> {
+  const past = await db
+    .select({ day: dailyChallenges.day, ids: dailyChallenges.questionVersionIds })
+    .from(dailyChallenges)
+    .where(and(gte(dailyChallenges.day, addDays(day, -DAILY_COOLDOWN_DAYS)), lt(dailyChallenges.day, day)));
+  const versions = await getVersions(db, past.flatMap((p) => p.ids));
+  const recent = new Map<string, string>();
+  for (const p of past) {
+    for (const id of p.ids) {
+      const slug = versions.get(id)?.slug;
+      if (slug && (recent.get(slug) ?? "") < p.day) recent.set(slug, p.day);
+    }
+  }
+  return recent;
 }
 
 // --- Read ---------------------------------------------------------------------------
