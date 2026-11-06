@@ -89,6 +89,16 @@ describe("results screens", () => {
     expect(html).toContain("Bunt 10 · Single 25 · Double 50 · Triple 75 · Plákata 100");
     expect(html).toContain("700 points possible");
   });
+
+  it("landing keeps the full rules in a closed How to play dialog", () => {
+    const html = renderToStaticMarkup(createElement(LandingScreen, { mode: "daily", onModeChange: noop, onStart: noop }));
+    expect(html).toMatch(/<button[^>]*aria-haspopup="dialog"[^>]*>.*How to play<\/button>/);
+    const dialog = html.slice(html.indexOf("<dialog"), html.indexOf("</dialog>"));
+    expect(dialog).not.toContain(" open");
+    expect(dialog).toContain("Bunt 10 · Single 25");
+    expect(dialog).toContain("strikeout");
+    expect(dialog).toContain("seconds to read the prompt");
+  });
 });
 
 describe("game shell", () => {
