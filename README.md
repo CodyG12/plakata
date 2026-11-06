@@ -25,6 +25,7 @@ that write (`setup`, `questions:sync`, `rarity:refresh`).
 | ------------------------------------------ | --------------------------------------------------------------- |
 | `npm run dev`                              | Dev server                                                      |
 | `npm test`                                 | Unit + integration tests (Vitest; integration uses in-memory PGlite) |
+| `npm run test:e2e`                         | Browser tests (Playwright) against a production build on a throwaway PGlite DB |
 | `npm run lint` / `npm run typecheck`       | ESLint / TypeScript                                             |
 | `npm run build`                            | Production build (`npm start` to serve it)                      |
 | `npm run plakata -- setup`                 | Migrate, import players, sync the question bank                 |
@@ -560,6 +561,15 @@ Five things are deliberately kept apart:
   handlers: 401 without a session or with a forged one, wrong password, JSON-only writes, the Builder off
   without `ADMIN_PASSWORD`, and a password change signing sessions out.
 - Plus v1's name-matching, validation, scoring, screen-render and client-reducer tests.
+
+`npm run test:e2e` drives the **Question Builder in Chromium** (Playwright, `e2e/`). It builds the app,
+starts it on port 3100 and sets up a fresh PGlite database in `.data/e2e-pglite` with
+`PLAKATA_DB=pglite`. That variable forces PGlite even when `.env.local` sets `DATABASE_URL`, so the
+browser tests can never write to Neon. The test signs in (and rejects a wrong password), drafts a
+"300 strikeouts in a season" question, validates it (blocked without a pick, then ready with the
+suggested one), checks the 1893-floor leaders (Ryan, Koufax, Randy Johnson, Waddell, Feller, not
+Kilroy), tests answers (Ryan gets the Top-5 Bunt, Kilroy still qualifies without it, a hitter
+doesn't qualify), publishes, disables, reloads and signs out. First run: `npx playwright install chromium`.
 
 Manual check: a production build (`next start`) driven in Chrome covered the read period, a wrong
 guess, a mid-round refresh (the clock continued, not reset), a valid answer and a time-out Strikeout,

@@ -6,6 +6,9 @@
  *    in .data/pglite. Same schema, same migrations, same SQL.
  *
  * In production DATABASE_URL is required: PGlite on a serverless host would lose data.
+ *
+ * PLAKATA_DB=pglite forces PGlite even when DATABASE_URL is set (e.g. by .env.local),
+ * so the end-to-end tests can never reach a real database.
  */
 import { join } from "node:path";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
@@ -17,6 +20,12 @@ export type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 export type Executor = Db | Tx;
 
 export const MIGRATIONS_FOLDER = join(process.cwd(), "drizzle");
+
+/** The PostgreSQL url to use, or undefined for PGlite. */
+function databaseUrl(preferDirect = false): string | undefined {
+  if (process.env.PLAKATA_DB === "pglite") return undefined;
+  return (preferDirect ? process.env.DATABASE_URL_UNPOOLED : undefined) ?? process.env.DATABASE_URL ?? undefined;
+}
 
 interface Handle {
   db: Db;
@@ -63,7 +72,7 @@ export async function openPglite(dataDir?: string, opts: { migrate?: boolean } =
  * connection: migrations over a transaction-mode pooler (PgBouncer) can fail.
  */
 export async function migrateDatabase(): Promise<void> {
-  const url = process.env.DATABASE_URL_UNPOOLED ?? process.env.DATABASE_URL;
+  const url = databaseUrl(true);
   if (!url) {
     const handle = await getHandle();
     await handle.ready;
@@ -87,7 +96,7 @@ const globalForDb = globalThis as unknown as { __plakataDb?: Promise<Handle> };
 function getHandle(): Promise<Handle> {
   // Cached on globalThis so Next.js dev hot reloads reuse one connection/PGlite instance.
   globalForDb.__plakataDb ??= (async () => {
-    const url = process.env.DATABASE_URL;
+    const url = databaseUrl();
     if (url) return openPostgres(url);
     if (process.env.NODE_ENV === "production" && process.env.PLAKATA_ALLOW_PGLITE !== "1") {
       throw new Error("DATABASE_URL is not set. Production needs a PostgreSQL database (see README).");
